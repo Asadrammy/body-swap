@@ -1,0 +1,42 @@
+models:
+  face_detector: insightface  # insightface, dlib, or opencv
+  pose_detector: mediapipe    # mediapipe or openpose
+  segmenter: sam              # sam (Segment Anything Model)
+  generator:
+    base_model: runwayml/stable-diffusion-v1-5
+    controlnet: lllyasviel/sd-controlnet-openpose
+    inpaint_model: runwayml/stable-diffusion-inpainting
+    device: cuda               # cuda or cpu
+    lora_paths: []             # optional list of LoRA checkpoints
+
+processing:
+  image_size: 512             # Target processing size
+  max_image_size: 1024        # Maximum input image size
+  batch_size: 1
+  num_inference_steps: 50
+  guidance_scale: 7.5
+  refinement_strength: 0.8
+  quality_threshold: 0.85
+  mesh_rows: 24
+  mesh_cols: 12
+  depth_map_size: 128
+  region_refine_strengths:
+    face: 0.65
+    body: 0.55
+    edges: 0.45
+    problems: 0.7
+
+paths:
+  models_dir: models          # Directory for model weights
+  outputs_dir: outputs        # Output directory
+  temp_dir: temp              # Temporary files directory
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  timeout: 300                # Request timeout in seconds
+
+logging:
+  level: INFO                 # DEBUG, INFO, WARNING, ERROR
+  file: logs/app.log          # Optional log file path
+

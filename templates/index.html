@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face & Body Swap - Professional Photo Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brandAccent: '#667eea',
+                        brandAccentAlt: '#764ba2',
+                        brandDark: '#0c1228',
+                        brandDarker: '#080f1f',
+                        brandSurface: '#101734',
+                        brandSurfaceLight: '#f8f9ff'
+                    },
+                }
+            }
+        };
+    </script>
+    <style>
+        .step { display: none; }
+        .step.active { display: block; }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-100 dark:bg-brandDarker bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.25),_transparent_45%),_linear-gradient(135deg,_rgba(102,126,234,0.15),_rgba(118,75,162,0.25))] transition-colors duration-500 px-4 py-8 text-slate-900 dark:text-slate-100">
+    <div class="max-w-6xl mx-auto rounded-[40px] bg-white/95 dark:bg-[rgba(8,9,20,0.85)] shadow-[0_40px_120px_rgba(15,23,42,0.35)] border border-white/60 dark:border-white/5 backdrop-blur-3xl ring-1 ring-white/30 dark:ring-white/5">
+        <!-- Header -->
+        <header class="rounded-[30px] bg-gradient-to-br from-brandAccent to-brandAccentAlt text-white p-10 shadow-[0_35px_80px_rgba(102,126,234,0.4)]">
+            <div class="space-y-3 max-w-3xl">
+                <p class="uppercase tracking-[0.35em] text-white/70 text-sm">Premium AI Studio</p>
+                <h1 class="text-4xl sm:text-5xl font-semibold flex items-center gap-3">📸 Photo Swap Studio</h1>
+                <p class="text-white/80 text-lg">Transform yourself into any template in seconds with couture-level detailing.</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="p-8 space-y-10">
+            <!-- Step 1: Upload Customer Photos -->
+            <section id="step1" class="step active space-y-6 rounded-[28px] border border-white/50 dark:border-white/10 bg-white/90 dark:bg-brandDark/70 p-8 shadow-xl shadow-slate-900/10 dark:shadow-black/40">
+                <div>
+                    <h2 class="text-3xl font-semibold">Step 1: Upload Your Photos</h2>
+                    <p class="text-slate-600 dark:text-slate-300 mt-2">Upload 1-2 photos of yourself (or couple/family)</p>
+                </div>
+                
+                <div id="uploadArea" class="group relative flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-brandAccent bg-brandAccent/5 dark:bg-brandSurface/30 px-8 py-16 text-center transition hover:border-brandAccentAlt hover:bg-brandAccent/10">
+                    <div class="text-6xl mb-6">📷</div>
+                    <p class="text-lg font-medium mb-2">Drag & drop your photos here or click to browse</p>
+                    <p class="text-sm text-slate-500 dark:text-slate-300 mb-6">Accepted: JPG, PNG (Max 10MB each)</p>
+                    <input type="file" id="customerPhotos" multiple accept="image/*" class="hidden">
+                    <button id="choosePhotosBtn" class="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brandAccent to-brandAccentAlt px-8 py-3 text-white font-semibold shadow-lg shadow-brandAccent/40">
+                        Choose Photos
+                    </button>
+                </div>
+
+                <div id="uploadedPhotos" class="photo-preview-container flex flex-wrap gap-6"></div>
+
+                <div class="flex flex-wrap gap-4">
+                    <button class="btn-secondary rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10" onclick="resetStep1()">Clear</button>
+                    <button class="btn-primary rounded-full bg-gradient-to-r from-brandAccent to-brandAccentAlt px-6 py-3 text-white shadow-lg shadow-brandAccent/40 disabled:opacity-40 disabled:cursor-not-allowed" id="nextToStep2" onclick="goToStep2()" disabled>
+                        Next: Select Template →
+                    </button>
+                </div>
+            </section>
+
+            <!-- Step 2: Select Template -->
+            <section id="step2" class="step space-y-6 rounded-[28px] border border-white/50 dark:border-white/10 bg-white/90 dark:bg-brandDark/70 p-8 shadow-xl shadow-slate-900/10 dark:shadow-black/40">
+                <div>
+                    <h2 class="text-3xl font-semibold">Step 2: Choose Your Template</h2>
+                    <p class="text-slate-600 dark:text-slate-300 mt-2">Select the style, pose, and clothing you want</p>
+                </div>
+
+                <!-- Template Categories -->
+                <div class="categories flex flex-wrap gap-3">
+                    <button class="category-btn active rounded-full border border-brandAccent px-5 py-2 text-brandAccent transition hover:bg-brandAccent hover:text-white dark:text-white dark:border-white/30" onclick="filterTemplates('all', this)">All</button>
+                    <button class="category-btn rounded-full border border-brandAccent px-5 py-2 text-brandAccent transition hover:bg-brandAccent hover:text-white dark:text-white dark:border-white/30" onclick="filterTemplates('individual', this)">Individual</button>
+                    <button class="category-btn rounded-full border border-brandAccent px-5 py-2 text-brandAccent transition hover:bg-brandAccent hover:text-white dark:text-white dark:border-white/30" onclick="filterTemplates('couple', this)">Couples</button>
+                    <button class="category-btn rounded-full border border-brandAccent px-5 py-2 text-brandAccent transition hover:bg-brandAccent hover:text-white dark:text-white dark:border-white/30" onclick="filterTemplates('family', this)">Family</button>
+                </div>
+
+                <!-- Template Gallery -->
+                <div id="templateGallery" class="template-gallery grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="loading col-span-full text-center text-slate-500 dark:text-slate-300 py-10">Loading templates...</div>
+                </div>
+
+                <div class="flex flex-wrap gap-4">
+                    <button class="btn-secondary rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10" onclick="goToStep1()">← Back</button>
+                    <button class="btn-primary rounded-full bg-gradient-to-r from-brandAccent to-brandAccentAlt px-6 py-3 text-white shadow-lg shadow-brandAccent/40 disabled:opacity-40 disabled:cursor-not-allowed" id="nextToStep3" onclick="goToStep3()" disabled>
+                        Next: Process →
+                    </button>
+                </div>
+            </section>
+
+            <!-- Step 3: Processing -->
+            <section id="step3" class="step space-y-6 rounded-[28px] border border-white/50 dark:border-white/10 bg-white/90 dark:bg-brandDark/70 p-8 shadow-xl shadow-slate-900/10 dark:shadow-black/40">
+                <div>
+                    <h2 class="text-3xl font-semibold">Step 3: Processing Your Image</h2>
+                    <p class="text-slate-600 dark:text-slate-300 mt-2">Please wait while we create your masterpiece...</p>
+                </div>
+
+                <div class="processing-container rounded-3xl border border-slate-200 dark:border-white/10 bg-brandSurfaceLight/80 dark:bg-brandSurface/70 p-8 shadow-inner space-y-6">
+                    <div class="spinner mx-auto h-16 w-16 border-4 border-brandAccent/30 border-t-brandAccent rounded-full animate-spin"></div>
+                    <div id="processingStatus" class="processing-status text-center text-xl font-semibold text-brandAccent dark:text-white">
+                        Initializing...
+                    </div>
+                    <div id="progressBar" class="progress-bar w-full h-4 bg-white/40 dark:bg-white/10 rounded-full overflow-hidden">
+                        <div id="progressFill" class="progress-fill h-full bg-gradient-to-r from-brandAccent to-brandAccentAlt rounded-full transition-[width] duration-300" style="width: 0%"></div>
+                    </div>
+                    <div id="currentStage" class="current-stage text-center text-slate-600 dark:text-slate-300 text-sm"></div>
+                </div>
+
+                <div class="processing-info rounded-2xl bg-brandSurfaceLight dark:bg-white/5 border border-white/40 dark:border-white/5 p-6 flex flex-col gap-2 text-slate-700 dark:text-slate-200">
+                    <p>⏱️ Estimated time: <span id="estimatedTime">2-5 minutes</span></p>
+                    <p>📧 We'll notify you when it's ready!</p>
+                </div>
+            </section>
+
+            <!-- Step 4: Result -->
+            <section id="step4" class="step space-y-6 rounded-[28px] border border-white/50 dark:border-white/10 bg-white/90 dark:bg-brandDark/70 p-8 shadow-xl shadow-slate-900/10 dark:shadow-black/40">
+                <h2 class="text-3xl font-semibold">Your Result is Ready! ✨</h2>
+                
+                <div class="result-container flex flex-col lg:flex-row gap-8">
+                    <div class="result-image-container flex-1 bg-brandSurfaceLight/90 dark:bg-brandSurface rounded-3xl p-6 shadow-lg border border-white/40 dark:border-white/5">
+                        <img id="resultImage" src="" alt="Result" class="result-image w-full rounded-2xl shadow-lg mb-6 bg-slate-200/30 dark:bg-white/5 object-cover">
+                        <div class="result-actions flex flex-wrap gap-4">
+                            <button class="btn-primary rounded-full bg-gradient-to-r from-brandAccent to-brandAccentAlt px-6 py-3 text-white shadow-lg shadow-brandAccent/40" onclick="downloadResult()">
+                                📥 Download
+                            </button>
+                            <button class="btn-secondary rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10" onclick="downloadBundle()">
+                                🗂️ Bundle (image + metadata)
+                            </button>
+                            <button class="btn-secondary rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10" onclick="shareResult()">
+                                🔗 Share
+                            </button>
+                            <button class="btn-secondary rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10" onclick="createNew()">
+                                ✨ Create Another
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 space-y-6">
+                        <div class="quality-info rounded-3xl bg-brandSurfaceLight dark:bg-brandSurface border border-white/40 dark:border-white/5 p-6 space-y-4">
+                            <h3 class="text-2xl font-semibold">Quality Score</h3>
+                            <div id="qualityMetrics" class="quality-metrics space-y-4">
+                                <!-- Quality metrics will be shown here -->
+                            </div>
+                        </div>
+                        <div class="fit-info rounded-3xl bg-brandSurfaceLight dark:bg-brandSurface border border-white/40 dark:border-white/5 p-6 space-y-4">
+                            <div class="flex items-center gap-3">
+                                <span class="text-2xl">🧵</span>
+                                <h3 class="text-2xl font-semibold">Body & Fit Insights</h3>
+                            </div>
+                            <div id="bodySummary" class="space-y-3 text-sm text-slate-700 dark:text-slate-200">
+                                <p class="text-slate-500 dark:text-slate-400 text-sm">Summary will appear here once processing completes.</p>
+                            </div>
+                            <div id="fitReport" class="space-y-4 text-sm text-slate-700 dark:text-slate-200">
+                                <!-- Fit report items -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="text-center text-slate-500 dark:text-slate-400 border-t border-slate-200/70 dark:border-white/10 px-6 py-8">
+            <p>&copy; 2025 Photo Swap Studio. All rights reserved.</p>
+            <p>Processing powered by AI | Delivery within 24 hours</p>
+        </footer>
+    </div>
+
+    <button id="themeToggle" class="fixed bottom-6 right-6 w-16 h-16 rounded-full bg-brandDark text-white dark:bg-white dark:text-brandDark shadow-[0_20px_35px_rgba(0,0,0,0.35)] text-2xl flex items-center justify-center transition-all duration-200 hover:scale-105 focus-visible:outline focus-visible:outline-4 focus-visible:outline-brandAccent/60" aria-label="Activate dark mode" type="button">🌙</button>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
+

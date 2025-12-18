@@ -1,0 +1,32 @@
+models:
+  face_detector: insightface
+  pose_detector: mediapipe
+  segmenter: sam
+  generator:
+    base_model: runwayml/stable-diffusion-v1-5
+    controlnet: lllyasviel/sd-controlnet-openpose
+    inpaint_model: runwayml/stable-diffusion-inpainting
+    device: cuda
+
+processing:
+  image_size: 768             # Higher quality for production
+  max_image_size: 2048
+  batch_size: 1
+  num_inference_steps: 50
+  guidance_scale: 7.5
+  refinement_strength: 0.8
+
+paths:
+  models_dir: /app/models
+  outputs_dir: /app/outputs
+  temp_dir: /app/temp
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  timeout: 600
+
+logging:
+  level: INFO
+  file: /app/logs/app.log
+

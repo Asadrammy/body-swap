@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  face-body-swap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: face-body-swap-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+      - ./configs:/app/configs
+    environment:
+      - DEVICE=cuda
+      - CUDA_AVAILABLE=true
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - MODELS_DIR=/app/models
+      - OUTPUTS_DIR=/app/outputs
+      - TEMP_DIR=/app/temp
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - swap-network
+
+networks:
+  swap-network:
+    driver: bridge
+

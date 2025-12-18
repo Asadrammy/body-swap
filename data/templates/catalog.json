@@ -1,0 +1,73 @@
+[
+  {
+    "id": "tpl_individual_casual_001",
+    "name": "Casual Street Portrait",
+    "category": "individual",
+    "description": "Full-body portrait with casual denim outfit and soft daylight background.",
+    "preview_url": "https://placehold.co/400x520/667eea/ffffff?text=Casual+Portrait",
+    "asset_path": "examples/templates/individual_casual_001.png",
+    "pose_type": "standing",
+    "clothing_style": "casual_denim",
+    "body_visibility": "full",
+    "recommended_subjects": ["adult_male", "adult_female"],
+    "background": "urban_daylight",
+    "tags": ["individual", "casual", "outdoor", "denim"]
+  },
+  {
+    "id": "tpl_individual_action_002",
+    "name": "Dynamic Action Shot",
+    "category": "individual",
+    "description": "High-energy pose with visible torso and motion blur, ideal for action outfits.",
+    "preview_url": "https://placehold.co/400x520/764ba2/ffffff?text=Action",
+    "asset_path": "examples/templates/individual_action_002.png",
+    "pose_type": "action",
+    "clothing_style": "athleisure",
+    "body_visibility": "torso_visible",
+    "recommended_subjects": ["adult_male", "adult_female"],
+    "background": "studio_dark",
+    "tags": ["individual", "action", "dynamic", "open_chest"]
+  },
+  {
+    "id": "tpl_couple_garden_001",
+    "name": "Romantic Garden Couple",
+    "category": "couple",
+    "description": "Couple pose in garden setting with coordinated outfits and soft lighting.",
+    "preview_url": "https://placehold.co/400x520/5c8aff/ffffff?text=Couple+Garden",
+    "asset_path": "examples/templates/couple_garden_001.png",
+    "pose_type": "standing",
+    "clothing_style": "semi_formal",
+    "body_visibility": "full",
+    "recommended_subjects": ["adult_couple"],
+    "background": "garden_evening",
+    "tags": ["couple", "outdoor", "romantic", "semi-formal"]
+  },
+  {
+    "id": "tpl_family_studio_001",
+    "name": "Family Studio Portrait",
+    "category": "family",
+    "description": "Studio-lit family portrait template for 3-4 subjects.",
+    "preview_url": "https://placehold.co/400x520/ff8fb2/ffffff?text=Family",
+    "asset_path": "examples/templates/family_studio_001.png",
+    "pose_type": "group",
+    "clothing_style": "coordinated_pastel",
+    "body_visibility": "three_quarter",
+    "recommended_subjects": ["family", "parent_child"],
+    "background": "studio_soft",
+    "tags": ["family", "studio", "group", "pastel"]
+  },
+  {
+    "id": "tpl_couple_action_002",
+    "name": "Dynamic Couple Dance",
+    "category": "couple",
+    "description": "Action-oriented couple pose with flowing garments and dramatic lighting.",
+    "preview_url": "https://placehold.co/400x520/fcc419/1f2937?text=Couple+Action",
+    "asset_path": "examples/templates/couple_action_002.png",
+    "pose_type": "action",
+    "clothing_style": "formal_dance",
+    "body_visibility": "torso_visible",
+    "recommended_subjects": ["adult_couple"],
+    "background": "stage_spotlight",
+    "tags": ["couple", "action", "dance", "formal"]
+  }
+]
+
