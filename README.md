@@ -92,16 +92,16 @@ The API will be available at `http://localhost:8000` with interactive documentat
 The complete AI-powered pipeline consists of 9 interconnected stages:
 
 ```mermaid
-graph TB
+flowchart TB
     Start([Customer Photos + Template]) --> Stage1[Stage 1: Input Validation & Preprocessing]
-    Stage1 --> Stage2[Stage 2: Body Shape Analysis<br/>AI: MediaPipe Pose Detection]
-    Stage2 --> Stage3[Stage 3: Template Analysis<br/>AI: Action Pose Detection]
-    Stage3 --> Stage4[Stage 4: Face Processing<br/>AI: InsightFace Recognition]
-    Stage4 --> Stage5[Stage 5: Body Warping<br/>Thin Plate Spline Transformation]
-    Stage5 --> Stage6[Stage 6: Clothing Adaptation<br/>AI: Body Conditioning & Skin Synthesis]
-    Stage6 --> Stage7[Stage 7: Composition<br/>Background Blending]
-    Stage7 --> Stage8[Stage 8: Generative Refinement<br/>AI: Stable Diffusion + ControlNet]
-    Stage8 --> Stage9[Stage 9: Quality Control<br/>AI: Quality Assessment]
+    Stage1 --> Stage2[Stage 2: Body Shape Analysis - AI MediaPipe]
+    Stage2 --> Stage3[Stage 3: Template Analysis - AI Action Detection]
+    Stage3 --> Stage4[Stage 4: Face Processing - AI InsightFace]
+    Stage4 --> Stage5[Stage 5: Body Warping - TPS Transformation]
+    Stage5 --> Stage6[Stage 6: Clothing Adaptation - AI Body Conditioning]
+    Stage6 --> Stage7[Stage 7: Composition - Background Blending]
+    Stage7 --> Stage8[Stage 8: Generative Refinement - AI Stable Diffusion]
+    Stage8 --> Stage9[Stage 9: Quality Control - AI Assessment]
     Stage9 --> End([Final Result])
     
     style Stage1 fill:#e1f5ff
@@ -113,6 +113,81 @@ graph TB
     style Stage7 fill:#e1f5ff
     style Stage8 fill:#ff9999
     style Stage9 fill:#99ff99
+```
+
+**Alternative Text-Based Workflow:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Customer Photos + Template                    │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 1: Input Validation & Preprocessing                      │
+│  • AI Face Detection (InsightFace/OpenCV)                      │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 2: Body Shape Analysis                                   │
+│  • AI Pose Detection (MediaPipe)                               │
+│  • Body Type Classification                                     │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 3: Template Analysis                                     │
+│  • AI Action Pose Detection                                    │
+│  • Expression & Clothing Analysis                               │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 4: Face Processing                                       │
+│  • AI Face Recognition (InsightFace)                           │
+│  • Expression Matching                                          │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 5: Body Warping                                          │
+│  • Thin Plate Spline Transformation                            │
+│  • Pose Alignment                                               │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 6: Clothing Adaptation                                   │
+│  • AI Body Conditioning & Skin Synthesis                        │
+│  • Clothing Scaling                                             │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 7: Composition                                           │
+│  • Background Blending                                          │
+│  • Lighting Matching                                            │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 8: Generative Refinement (AI-Powered)                     │
+│  • Stable Diffusion + ControlNet                                │
+│  • Photorealistic Enhancement                                   │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 9: Quality Control                                       │
+│  • AI Quality Assessment                                        │
+│  • Mask Generation for Refinement                               │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │   Final Result  │
+                    └─────────────────┘
 ```
 
 ### Detailed Stage Breakdown
@@ -188,13 +263,38 @@ sequenceDiagram
     participant QualityControl
     
     User->>API: Upload Customer Photos + Template
-    API->>Preprocessor: Validate & Preprocess
+    API->>Preprocessor: Validate and Preprocess
     Preprocessor->>BodyAnalyzer: Extract Body Shape
     BodyAnalyzer->>FaceProcessor: Analyze Faces
     FaceProcessor->>BodyWarper: Warp Body to Match Pose
     BodyWarper->>Refiner: Apply AI Refinement
     Refiner->>QualityControl: Assess Quality
     QualityControl->>User: Return Final Result
+```
+
+**Alternative Text-Based Sequence:**
+
+```
+User                    API              Preprocessor        BodyAnalyzer
+ │                       │                      │                  │
+ │─── Upload Photos ────>│                      │                  │
+ │                       │                      │                  │
+ │                       │─── Validate ────────>│                  │
+ │                       │                      │                  │
+ │                       │                      │─── Extract ─────>│
+ │                       │                      │   Body Shape     │
+ │                       │                      │                  │
+ │                       │<─── Body Data ───────│<─────────────────│
+ │                       │                      │                  │
+ │                       │─── Process Face ────>│                  │
+ │                       │                      │                  │
+ │                       │─── Warp Body ───────>│                  │
+ │                       │                      │                  │
+ │                       │─── AI Refine ───────>│                  │
+ │                       │                      │                  │
+ │                       │─── Quality Check ───>│                  │
+ │                       │                      │                  │
+ │<─── Final Result ──────│                      │                  │
 ```
 
 ### Key AI Technologies Used
