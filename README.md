@@ -7,10 +7,14 @@ A fully automated face-and-body swap pipeline that transplants customers into te
 - **Automated Processing**: Fully automated pipeline from input to output
 - **Multiple Subjects**: Support for individuals, couples, families, and groups
 - **Body Type Adaptation**: Automatically adapts clothing to different body sizes (average, plus-size, athletic, etc.)
+- **Body Conditioning**: Enhanced support for open chest shirts with realistic skin synthesis (male, female, children)
 - **Expression Matching**: Preserves and matches facial expressions from templates
+- **Action Photo Support**: Automatic detection and handling of action poses with dynamic expressions
 - **Pose Alignment**: Accurate body pose matching and warping
+- **Natural Face Refinement**: Enhanced face processing to avoid plastic-looking results
 - **Quality Control**: Built-in quality assessment and refinement capabilities
-- **Manual Touch-ups**: Generate masks for selective refinement
+- **Manual Touch-ups**: Enhanced mask generation for precise selective refinement
+- **Full Workflow Control**: Comprehensive manual intervention points at every stage
 - **REST API**: Full REST API for integration with web applications
 - **CLI Interface**: Command-line interface for batch processing
 
@@ -247,7 +251,44 @@ face-and-body-swap/
 └── README.md             # This file
 ```
 
+## Documentation
+
+- **[WORKFLOW_DOCUMENTATION.md](WORKFLOW_DOCUMENTATION.md)**: Complete workflow logic explanation with all stages, control points, and manual intervention options
+- **[TROUBLESHOOTING_GUIDE.md](TROUBLESHOOTING_GUIDE.md)**: Comprehensive troubleshooting guide for common issues
+- **[MODELS_IMPLEMENTATION.md](MODELS_IMPLEMENTATION.md)**: Details about model wrappers and their implementation
+
 ## Troubleshooting
+
+For detailed troubleshooting, see **[TROUBLESHOOTING_GUIDE.md](TROUBLESHOOTING_GUIDE.md)**.
+
+### Quick Fixes
+
+**Plastic-Looking Face**:
+- Reduce face refinement strength to 0.5-0.6 in config
+- Check negative prompts include "plastic, artificial, CGI"
+- Verify post-processing is preserving original texture
+
+**Open Chest Shirt Issues**:
+- Ensure customer photos show visible skin
+- Check skin profile extraction is working
+- Use chest_skin mask for targeted refinement
+
+**Body Size Mismatch**:
+- Verify pose detection is working
+- Check body measurements are accurate
+- Adjust scale factors manually if needed
+
+**Blending Seams**:
+- Use edge refinement mask
+- Increase edge refinement strength
+- Check background segmentation
+
+**Action Pose Issues**:
+- Verify action pose detection is working
+- Check expression matching for dynamic poses
+- Adjust warp parameters for dynamic poses
+
+### Common Issues
 
 ### GPU Not Detected
 
@@ -282,6 +323,7 @@ print(torch.cuda.is_available())
 - Use higher `IMAGE_SIZE`
 - Ensure good quality input images
 - Check template image quality
+- Review quality assessment and use recommended refinements
 
 ## Performance
 

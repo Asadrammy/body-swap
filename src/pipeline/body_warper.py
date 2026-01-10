@@ -28,16 +28,22 @@ class BodyWarper:
         customer_pose: Dict,
         template_pose: Dict,
         body_mask: Optional[np.ndarray] = None,
-        blueprint: Optional[Dict] = None
+        blueprint: Optional[Dict] = None,
+        customer_body_shape: Optional[Dict] = None
     ) -> np.ndarray:
         """
-        Warp customer body to match template pose
+        Warp customer body to match template pose, accounting for body size differences.
+        
+        If customer is larger/smaller than template, the template pose is scaled to match
+        customer's body size before warping.
         
         Args:
             customer_image: Customer reference image
             customer_pose: Customer pose keypoints
             template_pose: Template pose keypoints
             body_mask: Optional body mask to restrict warping
+            blueprint: Optional pre-computed warp blueprint
+            customer_body_shape: Optional customer body shape analysis (for size adjustment)
         
         Returns:
             Warped customer image
@@ -52,13 +58,43 @@ class BodyWarper:
             logger.warning("Insufficient keypoints for body warping")
             return customer_image
         
+        # Scale template keypoints to match customer body size if measurements available
+        scaled_template_keypoints = template_keypoints.copy()
+        if customer_body_shape and customer_body_shape.get("measurements"):
+            customer_measurements = customer_body_shape.get("measurements", {})
+            template_measurements = self._estimate_template_measurements(template_keypoints)
+            
+            if template_measurements:
+                # Calculate average scale factor from multiple measurements
+                scale_factors = []
+                for key in ["shoulder_width", "hip_width", "waist_width", "torso_height"]:
+                    if key in customer_measurements and key in template_measurements:
+                        if template_measurements[key] > 1e-3:
+                            scale_factors.append(customer_measurements[key] / template_measurements[key])
+                
+                if scale_factors:
+                    # Use median scale to be robust to outliers
+                    avg_scale = float(np.median(scale_factors))
+                    logger.info(f"Body size adjustment: scaling template pose by {avg_scale:.2f}x")
+                    
+                    # Scale template keypoints relative to center
+                    scaled_template_keypoints = self._scale_keypoints_to_size(
+                        template_keypoints,
+                        avg_scale,
+                        customer_keypoints
+                    )
+        
         # Extract corresponding keypoints
         if blueprint and blueprint.get("control_points"):
             src_points = np.array([cp["src"] for cp in blueprint["control_points"]])
-            dst_points = np.array([cp["dst"] for cp in blueprint["control_points"]])
+            # Use scaled destination points if size adjustment was applied
+            if blueprint.get("size_adjusted_dst_points") is not None:
+                dst_points = np.array(blueprint["size_adjusted_dst_points"])
+            else:
+                dst_points = np.array([cp["dst"] for cp in blueprint["control_points"]])
         else:
             src_points, dst_points = self._extract_corresponding_keypoints(
-                customer_keypoints, template_keypoints, customer_image.shape
+                customer_keypoints, scaled_template_keypoints, customer_image.shape
             )
         
         if len(src_points) < 3:
@@ -75,6 +111,16 @@ class BodyWarper:
         
         # Apply body mask if provided
         if body_mask is not None:
+            # Ensure mask matches warped_image dimensions
+            h_warped, w_warped = warped_image.shape[:2]
+            if body_mask.shape[:2] != (h_warped, w_warped):
+                body_mask = cv2.resize(body_mask, (w_warped, h_warped), interpolation=cv2.INTER_NEAREST)
+            
+            # Ensure customer_image matches warped_image dimensions for blending
+            h_customer, w_customer = customer_image.shape[:2]
+            if (h_customer, w_customer) != (h_warped, w_warped):
+                customer_image = cv2.resize(customer_image, (w_warped, h_warped))
+            
             mask_3d = np.stack([body_mask] * 3, axis=2) / 255.0
             warped_image = (
                 warped_image * mask_3d +
@@ -322,10 +368,18 @@ class BodyWarper:
         return result
 
     def build_warp_blueprint(self, customer_body_shape: Dict, template_pose: Dict) -> Dict:
-        """Create a reusable blueprint describing how to warp the body."""
+        """
+        Create a reusable blueprint describing how to warp the body.
+        Includes size-adjusted destination points to account for body size differences.
+        """
         customer_keypoints = customer_body_shape.get("pose_keypoints", customer_body_shape.get("keypoints", {}))
         template_keypoints = template_pose.get("keypoints", {})
-        blueprint = {"control_points": [], "scale_map": {}, "template_measurements": {}}
+        blueprint = {
+            "control_points": [],
+            "scale_map": {},
+            "template_measurements": {},
+            "size_adjusted_dst_points": None
+        }
         
         if not customer_keypoints or not template_keypoints:
             return blueprint
@@ -340,6 +394,7 @@ class BodyWarper:
             "left_ankle", "right_ankle"
         ]
         
+        # Build control points
         for name in key_order:
             if name in customer_keypoints and name in template_keypoints:
                 blueprint["control_points"].append({
@@ -348,12 +403,43 @@ class BodyWarper:
                     "dst": template_keypoints[name]
                 })
         
+        # Calculate measurements and scale map
         template_measurements = self._estimate_template_measurements(template_keypoints)
         blueprint["template_measurements"] = template_measurements
+        customer_measurements = customer_body_shape.get("measurements", {})
         blueprint["scale_map"] = self._derive_scale_map(
-            customer_body_shape.get("measurements", {}),
+            customer_measurements,
             template_measurements
         )
+        
+        # Calculate size-adjusted destination points
+        if customer_measurements and template_measurements:
+            scale_factors = []
+            for key in ["shoulder_width", "hip_width", "waist_width", "torso_height"]:
+                if key in customer_measurements and key in template_measurements:
+                    if template_measurements[key] > 1e-3:
+                        scale_factors.append(customer_measurements[key] / template_measurements[key])
+            
+            if scale_factors:
+                avg_scale = float(np.median(scale_factors))
+                scaled_template_keypoints = self._scale_keypoints_to_size(
+                    template_keypoints,
+                    avg_scale,
+                    customer_keypoints
+                )
+                
+                # Extract size-adjusted destination points in same order as control_points
+                size_adjusted_dst = []
+                for cp in blueprint["control_points"]:
+                    name = cp["name"]
+                    if name in scaled_template_keypoints:
+                        size_adjusted_dst.append(scaled_template_keypoints[name])
+                    else:
+                        size_adjusted_dst.append(cp["dst"])
+                
+                blueprint["size_adjusted_dst_points"] = size_adjusted_dst
+                blueprint["size_scale_factor"] = avg_scale
+        
         return blueprint
 
     def _estimate_template_measurements(self, keypoints: Dict) -> Dict:
@@ -450,7 +536,21 @@ class BodyWarper:
         new_y_max = new_y_min + new_h
         
         target_region = result[new_y_min:new_y_max, new_x_min:new_x_max]
+        
+        # Ensure target_region, scaled_crop, and scaled_mask have matching dimensions
+        h_target, w_target = target_region.shape[:2]
+        h_scaled, w_scaled = scaled_crop.shape[:2]
+        
+        if (h_target, w_target) != (h_scaled, w_scaled):
+            scaled_crop = cv2.resize(scaled_crop, (w_target, h_target), interpolation=cv2.INTER_LINEAR)
+            scaled_mask = cv2.resize(scaled_mask, (w_target, h_target), interpolation=cv2.INTER_NEAREST)
+        
         mask_3d = self._prepare_mask_for_blend(scaled_mask)
+        
+        # Ensure mask_3d matches target_region channels
+        if len(target_region.shape) == 3 and mask_3d.shape[2] == 1:
+            mask_3d = np.repeat(mask_3d, target_region.shape[2], axis=2)
+        
         blended = (target_region * (1 - mask_3d) + scaled_crop * mask_3d).astype(np.uint8)
         result[new_y_min:new_y_max, new_x_min:new_x_max] = blended
         
@@ -472,29 +572,241 @@ class BodyWarper:
         normalized = np.clip(blurred / 255.0, 0, 1)[..., None]
         return normalized
 
+    def _scale_keypoints_to_size(
+        self,
+        template_keypoints: Dict,
+        scale_factor: float,
+        customer_keypoints: Dict
+    ) -> Dict:
+        """
+        Scale template keypoints to match customer body size.
+        
+        Args:
+            template_keypoints: Original template keypoints
+            scale_factor: Scale factor (customer_size / template_size)
+            customer_keypoints: Customer keypoints (for reference center)
+        
+        Returns:
+            Scaled template keypoints
+        """
+        if abs(scale_factor - 1.0) < 0.01:
+            # No significant size difference
+            return template_keypoints
+        
+        scaled_keypoints = {}
+        
+        # Find reference center point (use neck or average of shoulders)
+        if "neck" in template_keypoints:
+            center_ref = np.array(template_keypoints["neck"])
+            # Ensure it's [x, y] format
+            if len(center_ref) > 2:
+                center_ref = center_ref[:2]
+        elif "left_shoulder" in template_keypoints and "right_shoulder" in template_keypoints:
+            left_sh = np.array(template_keypoints["left_shoulder"])
+            right_sh = np.array(template_keypoints["right_shoulder"])
+            # Ensure they're [x, y] format
+            if len(left_sh) > 2:
+                left_sh = left_sh[:2]
+            if len(right_sh) > 2:
+                right_sh = right_sh[:2]
+            center_ref = (left_sh + right_sh) / 2
+        else:
+            # Use customer neck as reference if available
+            if "neck" in customer_keypoints:
+                center_ref = np.array(customer_keypoints["neck"])
+                if len(center_ref) > 2:
+                    center_ref = center_ref[:2]
+            else:
+                # Fallback: use template neck or first available point
+                first_point = np.array(list(template_keypoints.values())[0])
+                if len(first_point) > 2:
+                    first_point = first_point[:2]
+                center_ref = first_point
+        
+        # Scale each keypoint relative to center
+        for name, point in template_keypoints.items():
+            point_arr = np.array(point)
+            # Ensure point_arr is 1D with 2 elements [x, y]
+            if point_arr.ndim > 1:
+                point_arr = point_arr.flatten()[:2]
+            elif len(point_arr) > 2:
+                point_arr = point_arr[:2]
+            
+            # Ensure center_ref is 1D with 2 elements
+            if center_ref.ndim > 1:
+                center_ref = center_ref.flatten()[:2]
+            elif len(center_ref) > 2:
+                center_ref = center_ref[:2]
+            
+            # Calculate offset from center
+            offset = point_arr - center_ref
+            # Scale the offset
+            scaled_offset = offset * scale_factor
+            # New position
+            scaled_keypoints[name] = (center_ref + scaled_offset).tolist()
+        
+        return scaled_keypoints
+    
     def _synthesize_visible_skin(
         self,
         image: np.ndarray,
         template_clothing: Dict,
         customer_body_shape: Dict
     ) -> np.ndarray:
-        """Fill open-chest regions with synthesized skin tone."""
+        """
+        Fill open-chest regions and visible skin areas with synthesized skin tone.
+        Enhanced to support male, female, and children with realistic skin texture.
+        """
         skin_profile = customer_body_shape.get("skin_profile", {})
         tone = skin_profile.get("tone")
         if tone is None:
+            logger.warning("No skin tone available for synthesis")
             return image
         
+        # Get visible body regions from skin profile
+        visible_regions = skin_profile.get("visible_body_regions", {})
+        
+        result = image.copy()
+        
+        # Process chest region if open
         torso_mask = template_clothing.get("masks", {}).get("torso")
         visible_parts = template_clothing.get("visible_body_parts", [])
-        if torso_mask is None or "chest" not in visible_parts:
+        
+        if "chest" in visible_regions:
+            chest_mask = visible_regions["chest"]
+            result = self._apply_skin_synthesis(result, chest_mask, tone, skin_profile)
+        elif torso_mask is not None and "chest" in visible_parts:
+            # Use torso mask as fallback
+            result = self._apply_skin_synthesis(result, torso_mask, tone, skin_profile)
+        
+        # Process arm regions if visible
+        for side in ["left_arm", "right_arm"]:
+            if side in visible_regions:
+                arm_mask = visible_regions[side]
+                result = self._apply_skin_synthesis(result, arm_mask, tone, skin_profile)
+        
+        return result
+    
+    def _apply_skin_synthesis(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+        tone: List[float],
+        skin_profile: Dict
+    ) -> np.ndarray:
+        """
+        Apply realistic skin synthesis to a masked region.
+        Uses texture from face reference if available to avoid flat/plastic look.
+        """
+        if mask is None or mask.sum() == 0:
             return image
         
-        tone_layer = np.ones_like(image, dtype=np.float32)
-        tone_layer[..., 0] *= tone[0]
-        tone_layer[..., 1] *= tone[1]
-        tone_layer[..., 2] *= tone[2]
+        result = image.copy()
         
-        mask_3d = self._prepare_mask_for_blend(torso_mask) * self.skin_blend_strength
-        blended = image.astype(np.float32) * (1 - mask_3d) + tone_layer * mask_3d
-        return np.clip(blended, 0, 255).astype(np.uint8)
+        # Get face reference for texture if available
+        face_reference = skin_profile.get("face_reference")
+        
+        if face_reference is not None and face_reference.size > 0:
+            # Use face texture as base for skin synthesis
+            # Resize face reference to match mask region size
+            mask_coords = np.column_stack(np.where(mask > 0))
+            if len(mask_coords) > 0:
+                y_min, x_min = mask_coords.min(axis=0)
+                y_max, x_max = mask_coords.max(axis=0)
+                region_h = y_max - y_min
+                region_w = x_max - x_min
+                
+                if region_h > 0 and region_w > 0:
+                    # Resize face reference to region size
+                    face_texture = cv2.resize(face_reference, (region_w, region_h))
+                    
+                    # Adjust color to match skin tone while preserving texture
+                    face_gray = cv2.cvtColor(face_texture, cv2.COLOR_BGR2GRAY)
+                    face_gray_3d = np.stack([face_gray] * 3, axis=2)
+                    
+                    # Create tone layer
+                    tone_array = np.array(tone, dtype=np.float32)
+                    if len(tone_array) >= 3:
+                        # Handle BGR format
+                        tone_layer = np.ones((region_h, region_w, 3), dtype=np.float32)
+                        tone_layer[..., 0] = tone_array[0]  # B
+                        tone_layer[..., 1] = tone_array[1]  # G
+                        tone_layer[..., 2] = tone_array[2]  # R
+                        
+                        # Blend texture with tone
+                        # Use face texture for detail, adjust to target tone
+                        texture_factor = 0.4  # How much texture to preserve
+                        tone_factor = 0.6  # How much target tone to apply
+                        
+                        # Normalize face texture
+                        face_normalized = face_texture.astype(np.float32) / 255.0
+                        tone_normalized = tone_layer / 255.0
+                        
+                        # Blend
+                        blended = (
+                            face_normalized * texture_factor +
+                            tone_normalized * tone_factor
+                        )
+                        
+                        # Add subtle noise for realism
+                        noise = np.random.normal(0, 0.02, blended.shape).astype(np.float32)
+                        blended = np.clip(blended + noise, 0, 1)
+                        
+                        synthesized = (blended * 255).astype(np.uint8)
+                        
+                        # Apply to masked region
+                        mask_crop = mask[y_min:y_max, x_min:x_max]
+                        
+                        # Ensure mask_crop matches synthesized dimensions
+                        h_synth, w_synth = synthesized.shape[:2]
+                        h_mask, w_mask = mask_crop.shape[:2]
+                        if (h_mask, w_mask) != (h_synth, w_synth):
+                            mask_crop = cv2.resize(mask_crop, (w_synth, h_synth), interpolation=cv2.INTER_NEAREST)
+                        
+                        mask_3d = self._prepare_mask_for_blend(mask_crop) * self.skin_blend_strength
+                        
+                        # Ensure mask_3d matches synthesized channels
+                        if len(synthesized.shape) == 3 and mask_3d.shape[2] == 1:
+                            mask_3d = np.repeat(mask_3d, synthesized.shape[2], axis=2)
+                        
+                        target_region = result[y_min:y_max, x_min:x_max]
+                        
+                        # Ensure target_region matches synthesized dimensions
+                        h_target, w_target = target_region.shape[:2]
+                        if (h_target, w_target) != (h_synth, w_synth):
+                            target_region = cv2.resize(target_region, (w_synth, h_synth), interpolation=cv2.INTER_LINEAR)
+                        
+                        blended_region = (
+                            target_region.astype(np.float32) * (1 - mask_3d) +
+                            synthesized * mask_3d
+                        )
+                        
+                        # Resize back if needed
+                        if (h_target, w_target) != (h_synth, w_synth):
+                            blended_region = cv2.resize(blended_region.astype(np.uint8), (w_target, h_target), interpolation=cv2.INTER_LINEAR)
+                            result[y_min:y_max, x_min:x_max] = blended_region
+                        else:
+                            result[y_min:y_max, x_min:x_max] = blended_region.astype(np.uint8)
+        
+        else:
+            # Fallback: simple tone application with texture
+            tone_array = np.array(tone, dtype=np.float32)
+            if len(tone_array) >= 3:
+                tone_layer = np.ones_like(image, dtype=np.float32)
+                tone_layer[..., 0] = tone_array[0]
+                tone_layer[..., 1] = tone_array[1]
+                tone_layer[..., 2] = tone_array[2]
+                
+                # Add subtle texture variation
+                noise = np.random.normal(0, 5, image.shape).astype(np.float32)
+                tone_layer = np.clip(tone_layer + noise, 0, 255)
+                
+                mask_3d = self._prepare_mask_for_blend(mask) * self.skin_blend_strength
+                blended = (
+                    image.astype(np.float32) * (1 - mask_3d) +
+                    tone_layer * mask_3d
+                )
+                result = np.clip(blended, 0, 255).astype(np.uint8)
+        
+        return result
 

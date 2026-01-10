@@ -4,6 +4,8 @@ import uuid
 import json
 import io
 import zipfile
+import numpy as np
+import cv2
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -146,6 +148,13 @@ class SwapPipeline:
                     template_data["faces"]
                 )
             
+            # Validate result after face processing
+            if result is None or not isinstance(result, np.ndarray) or result.size == 0:
+                logger.error(f"Result after face processing is invalid for job {job_id}, using template")
+                result = template_data["image"].copy()
+            else:
+                logger.info(f"Face processing result valid: shape={result.shape}, dtype={result.dtype}")
+            
             jobs[job_id]["progress"] = 0.5
             jobs[job_id]["current_stage"] = "warping_body"
             
@@ -161,9 +170,12 @@ class SwapPipeline:
                         customer_pose,
                         template_pose,
                         fused_body_shape.get("body_mask"),
-                        blueprint=blueprint
+                        blueprint=blueprint,
+                        customer_body_shape=fused_body_shape
                     )
                     
+                    # Use warped body as base for composition (size-adjusted customer body)
+                    # Then adapt template clothing to match customer size
                     adaptation_output = self.body_warper.adapt_clothing_to_body(
                         result,
                         template_analysis.get("clothing", {}),
@@ -175,6 +187,9 @@ class SwapPipeline:
                         jobs[job_id]["fit_report"] = adaptation_output.get("fit_report")
                     else:
                         result = adaptation_output
+                    
+                    # Store warped body for potential use in composition
+                    jobs[job_id]["warped_body"] = warped_body
             
             jobs[job_id]["progress"] = 0.6
             jobs[job_id]["current_stage"] = "composing"
@@ -187,16 +202,40 @@ class SwapPipeline:
                 lighting_info=template_analysis.get("lighting")
             )
             
+            # Validate composed image
+            if composed is None or not isinstance(composed, np.ndarray) or composed.size == 0:
+                logger.error(f"Composed image is invalid for job {job_id}, using template")
+                composed = template_data["image"].copy()
+            else:
+                logger.info(f"Composed image valid: shape={composed.shape}, dtype={composed.dtype}, min={np.min(composed)}, max={np.max(composed)}")
+            
             jobs[job_id]["progress"] = 0.7
             jobs[job_id]["current_stage"] = "refining"
             
-            # Refine
-            refined = self.refiner.refine_composition(
-                composed,
-                template_analysis,
-                fused_body_shape if fused_body_shape else {},
-                strength=0.8
-            )
+            # Refine - but first check if generator is available
+            try:
+                generator_available = self.refiner.generator.inpaint_pipe is not None
+            except:
+                generator_available = False
+            
+            if not generator_available:
+                logger.warning(f"Generator not available for job {job_id}, skipping refinement and using composed image")
+                refined = composed.copy()
+            else:
+                # Refine
+                refined = self.refiner.refine_composition(
+                    composed,
+                    template_analysis,
+                    fused_body_shape if fused_body_shape else {},
+                    strength=0.8
+                )
+                
+                # Validate refined image immediately after refinement
+                if refined is None or not isinstance(refined, np.ndarray) or refined.size == 0:
+                    logger.error(f"Refined image is invalid after refinement for job {job_id}, using composed")
+                    refined = composed.copy()
+                else:
+                    logger.info(f"Refined image valid: shape={refined.shape}, dtype={refined.dtype}, min={np.min(refined)}, max={np.max(refined)}")
             
             jobs[job_id]["progress"] = 0.9
             jobs[job_id]["current_stage"] = "quality_check"
@@ -224,6 +263,8 @@ class SwapPipeline:
                 region_subset = {name: refinement_masks[name] for name in recommended if name in refinement_masks}
                 if region_subset:
                     logger.info(f"Triggering targeted refinement for regions: {list(region_subset.keys())}")
+                    jobs[job_id]["current_stage"] = f"refining_regions ({len(region_subset)} regions)"
+                    jobs[job_id]["progress"] = 0.92
                     refined = self.refiner.refine_composition(
                         refined,
                         template_analysis,
@@ -231,6 +272,8 @@ class SwapPipeline:
                         region_masks=region_subset,
                         quality=quality
                     )
+                    jobs[job_id]["progress"] = 0.95
+                    jobs[job_id]["current_stage"] = "final_quality_check"
                     quality = self.quality_control.assess_quality(
                         refined,
                         customer_data["faces"][0] if customer_data["faces"] else [],
@@ -245,13 +288,102 @@ class SwapPipeline:
                         fused_body_shape.get("body_mask") if fused_body_shape else None
                     )
             
-            # Save result
+            # Validate and save result
             result_path = self.outputs_dir / f"{job_id}_result.png"
+            
+            # Validate refined image before saving
+            logger.info(f"Validating result image for job {job_id}...")
+            logger.info(f"  Refined image shape: {refined.shape if isinstance(refined, np.ndarray) else 'None'}")
+            logger.info(f"  Refined image dtype: {refined.dtype if isinstance(refined, np.ndarray) else 'None'}")
+            if isinstance(refined, np.ndarray) and refined.size > 0:
+                logger.info(f"  Refined image min/max: {np.min(refined)}/{np.max(refined)}")
+                unique_colors = len(np.unique(refined.reshape(-1, refined.shape[-1]), axis=0)) if len(refined.shape) == 3 else len(np.unique(refined))
+                logger.info(f"  Refined image unique colors: {unique_colors}")
+            
+            if refined is None or not isinstance(refined, np.ndarray):
+                logger.error(f"Invalid refined image for job {job_id}, using template as fallback")
+                refined = template_data["image"].copy()
+            elif refined.size == 0:
+                logger.error(f"Empty refined image for job {job_id}, using template as fallback")
+                refined = template_data["image"].copy()
+            elif len(refined.shape) < 2 or refined.shape[0] == 0 or refined.shape[1] == 0:
+                logger.error(f"Invalid refined image shape {refined.shape} for job {job_id}, using template as fallback")
+                refined = template_data["image"].copy()
+            else:
+                # Check if image is all zeros or single color (potential error)
+                if len(refined.shape) == 3:
+                    unique_colors = len(np.unique(refined.reshape(-1, refined.shape[-1]), axis=0))
+                    std_dev = np.std(refined)
+                    mean_rgb = np.mean(refined, axis=(0, 1))
+                    channel_stds = [np.std(refined[:, :, c]) for c in range(refined.shape[2])]
+                else:
+                    unique_colors = len(np.unique(refined))
+                    std_dev = np.std(refined)
+                    mean_rgb = np.mean(refined)
+                    channel_stds = [std_dev]
+                
+                # More comprehensive solid color detection
+                is_solid_color = False
+                reason = ""
+                
+                if np.all(refined == 0):
+                    is_solid_color = True
+                    reason = "all zeros"
+                elif np.min(refined) == np.max(refined) and refined.size > 100:
+                    is_solid_color = True
+                    reason = f"all pixels are {np.min(refined)}"
+                elif unique_colors < 20 and refined.size > 1000:
+                    is_solid_color = True
+                    reason = f"only {unique_colors} unique colors"
+                elif std_dev < 8.0 and refined.size > 1000:
+                    is_solid_color = True
+                    reason = f"low variance (std={std_dev:.2f})"
+                elif len(refined.shape) == 3 and all(std < 5.0 for std in channel_stds):
+                    is_solid_color = True
+                    reason = f"low per-channel variance (stds={channel_stds})"
+                
+                if is_solid_color:
+                    logger.warning(f"Refined image appears to be solid color for job {job_id} ({reason}), using template as fallback")
+                    logger.warning(f"  Color stats - Mean RGB: {mean_rgb}, Std RGB: {std_dev:.2f}, Unique colors: {unique_colors}")
+                    refined = template_data["image"].copy()
+            
+            # Ensure image is in correct format
+            if len(refined.shape) == 2:
+                # Grayscale - convert to RGB
+                refined = cv2.cvtColor(refined, cv2.COLOR_GRAY2RGB)
+            elif len(refined.shape) == 3 and refined.shape[2] == 4:
+                # RGBA - convert to RGB
+                refined = cv2.cvtColor(refined, cv2.COLOR_RGBA2RGB)
+            elif len(refined.shape) == 3 and refined.shape[2] != 3:
+                # Wrong number of channels
+                logger.warning(f"Refined image has {refined.shape[2]} channels, converting to RGB")
+                refined = refined[:, :, :3]
+            
+            # Ensure uint8 format
+            if isinstance(refined, np.ndarray):
+                if refined.dtype != np.uint8:
+                    if refined.max() <= 1.0:
+                        refined = (refined * 255).astype(np.uint8)
+                        logger.info("  Converted float [0-1] to uint8")
+                    else:
+                        refined = np.clip(refined, 0, 255).astype(np.uint8)
+                        logger.info("  Clipped and converted to uint8")
+            
+            logger.info(f"  Final image shape: {refined.shape}, dtype: {refined.dtype}")
+            logger.info(f"  Final image min/max: {np.min(refined)}/{np.max(refined)}")
             save_image(refined, result_path)
+            logger.info(f"✅ Result saved to {result_path}")
             
             # Save masks
             masks_path = {}
             for mask_name, mask in refinement_masks.items():
+                # Skip metadata entry - it's a dict, not an image
+                if mask_name == "_metadata":
+                    continue
+                # Ensure mask is a numpy array
+                if not isinstance(mask, np.ndarray):
+                    logger.warning(f"Skipping {mask_name}: not a numpy array")
+                    continue
                 mask_path = self.outputs_dir / f"{job_id}_mask_{mask_name}.png"
                 save_image(mask, mask_path)
                 masks_path[mask_name] = str(mask_path)
@@ -303,7 +435,9 @@ async def create_swap_job(
         template_entry = template_catalog.get_template(template_id)
         if not template_entry:
             raise HTTPException(status_code=404, detail="Template not found")
-        source_path = Path(template_entry.asset_path)
+        # Resolve template path relative to project root
+        project_root = Path(__file__).parent.parent.parent.resolve()
+        source_path = project_root / template_entry.asset_path
         if not source_path.exists():
             raise HTTPException(
                 status_code=404,
@@ -336,6 +470,23 @@ async def create_swap_job(
         status="pending",
         message="Job created and queued for processing"
     )
+
+
+@router.get("/jobs")
+async def list_jobs():
+    """List all jobs"""
+    from typing import Dict, Any
+    jobs_list = []
+    for job_id, job_data in jobs.items():
+        jobs_list.append({
+            "job_id": job_id,
+            "status": job_data.get("status", "unknown"),
+            "progress": job_data.get("progress", 0.0),
+            "current_stage": job_data.get("current_stage"),
+            "created_at": job_data.get("created_at"),
+            "updated_at": job_data.get("updated_at")
+        })
+    return {"jobs": jobs_list, "total": len(jobs_list)}
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatus)

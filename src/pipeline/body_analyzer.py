@@ -47,8 +47,11 @@ class BodyAnalyzer:
         pose = pose_data[0]  # Use first detected pose
         keypoints = pose.get("keypoints", {})
         
+        # Store keypoints for use in skin region detection
+        self._current_keypoints = keypoints
+        
         # Extract body measurements
-        measurements = self._extract_measurements(keypoints, image.shape)
+        measurements = self._extract_measurements(keypoints, image.shape[:2])
         
         # Classify body type
         body_type = self._classify_body_type(measurements)
@@ -86,12 +89,16 @@ class BodyAnalyzer:
         
         Args:
             keypoints: Pose keypoints
-            image_shape: Image dimensions (height, width)
+            image_shape: Image dimensions (height, width) or numpy array shape
         
         Returns:
             Measurements dictionary
         """
-        h, w = image_shape
+        # Handle both tuple and numpy array shape formats
+        if isinstance(image_shape, (tuple, list)) and len(image_shape) >= 2:
+            h, w = image_shape[0], image_shape[1]
+        else:
+            h, w = image_shape
         measurements = {}
         
         # Calculate distances in pixels
@@ -118,9 +125,27 @@ class BodyAnalyzer:
             waist_y = (keypoints["left_shoulder"][1] + keypoints["left_hip"][1]) / 2
             measurements["waist_y"] = float(waist_y)
             
-            # Estimate waist width (proportional to shoulders/hips)
+            # Estimate waist width - use more accurate calculation
+            # For plus-size bodies, waist is typically wider than average of shoulders/hips
+            # For slim bodies, waist is narrower
             if "shoulder_width" in measurements and "hip_width" in measurements:
-                waist_width = (measurements["shoulder_width"] + measurements["hip_width"]) / 2 * 0.85
+                avg_width = (measurements["shoulder_width"] + measurements["hip_width"]) / 2
+                # Base waist width calculation
+                # For most body types, waist is 0.75-0.95 of average width
+                # We'll use a more conservative estimate that works better for size differences
+                waist_ratio = 0.88  # Default ratio
+                
+                # Adjust based on body proportions
+                if "shoulder_hip_ratio" in measurements:
+                    ratio = measurements.get("shoulder_hip_ratio", 1.0)
+                    # If hips are wider (ratio < 1), waist might be closer to hip width
+                    # If shoulders are wider (ratio > 1), waist might be closer to shoulder width
+                    if ratio < 0.95:  # Pear-shaped or plus-size
+                        waist_ratio = 0.92
+                    elif ratio > 1.1:  # Athletic/V-shaped
+                        waist_ratio = 0.85
+                
+                waist_width = avg_width * waist_ratio
                 measurements["waist_width"] = float(waist_width)
         
         # Overall body dimensions
@@ -427,22 +452,266 @@ class BodyAnalyzer:
         body_mask: np.ndarray,
         faces: List[Dict]
     ) -> Dict:
-        """Estimate skin tone and create a small reference patch."""
-        profile: Dict = {"tone": None, "sample_count": 0}
+        """
+        Estimate skin tone and create a small reference patch.
+        Enhanced to support male, female, and children with better skin tone detection.
+        """
+        profile: Dict = {
+            "tone": None, 
+            "sample_count": 0,
+            "gender": None,
+            "age_group": None,
+            "visible_body_regions": []
+        }
         
-        if body_mask is not None and body_mask.sum() > 0:
-            samples = image[body_mask > 0]
-            if samples.size > 0:
-                profile["tone"] = np.median(samples, axis=0).tolist()
-                profile["sample_count"] = int(samples.shape[0])
-        
+        # Detect gender and age from face if available
         if faces:
+            face_data = faces[0]
+            # Try to get gender/age from face detection if available
+            profile["gender"] = face_data.get("gender", None)
+            profile["age_group"] = self._estimate_age_group(face_data.get("age", None))
+            
             face_patch = self._extract_skin_reference(image, faces[0])
             if face_patch is not None and face_patch.size > 0:
                 profile["face_reference"] = face_patch
-                profile.setdefault("tone", np.median(face_patch.reshape(-1, 3), axis=0).tolist())
+                # Use face as primary reference for skin tone
+                face_tone = np.median(face_patch.reshape(-1, 3), axis=0).tolist()
+                profile["tone"] = face_tone
+        
+        # Extract visible body regions (chest, arms, etc.)
+        if body_mask is not None and body_mask.sum() > 0:
+            # Check for visible skin regions in body
+            visible_regions = self._detect_visible_skin_regions(image, body_mask, faces)
+            profile["visible_body_regions"] = visible_regions
+            
+            # Sample from visible skin regions if available
+            if visible_regions:
+                skin_samples = []
+                for region_name, region_mask in visible_regions.items():
+                    if region_mask is not None and region_mask.sum() > 0:
+                        region_pixels = image[region_mask > 0]
+                        if region_pixels.size > 0:
+                            skin_samples.append(region_pixels)
+                
+                if skin_samples:
+                    all_samples = np.vstack(skin_samples)
+                    profile["tone"] = np.median(all_samples, axis=0).tolist()
+                    profile["sample_count"] = int(all_samples.shape[0])
+            else:
+                # Fallback to general body mask
+                samples = image[body_mask > 0]
+                if samples.size > 0:
+                    # Filter for skin-like colors
+                    skin_like = self._filter_skin_colors(samples)
+                    if skin_like.size > 0:
+                        profile["tone"] = np.median(skin_like, axis=0).tolist()
+                        profile["sample_count"] = int(skin_like.shape[0])
         
         return profile
+    
+    def _estimate_age_group(self, age: Optional[float]) -> str:
+        """Estimate age group from age value"""
+        if age is None:
+            return "adult"
+        if age < 13:
+            return "child"
+        elif age < 18:
+            return "teen"
+        else:
+            return "adult"
+    
+    def _detect_visible_skin_regions(
+        self,
+        image: np.ndarray,
+        body_mask: np.ndarray,
+        faces: List[Dict]
+    ) -> Dict[str, np.ndarray]:
+        """
+        Detect visible skin regions (chest, arms, etc.) for body conditioning.
+        Critical for open chest shirts.
+        """
+        regions = {}
+        h, w = image.shape[:2]
+        
+        # Get pose keypoints if available from body analysis
+        keypoints = getattr(self, '_current_keypoints', {})
+        
+        # Detect chest region (for open chest shirts)
+        if "left_shoulder" in keypoints and "right_shoulder" in keypoints:
+            chest_mask = self._create_chest_region_mask(keypoints, h, w)
+            if chest_mask is not None and chest_mask.sum() > 0:
+                # Verify it's actually skin (not clothing)
+                if self._verify_skin_region(image, chest_mask):
+                    regions["chest"] = chest_mask
+        
+        # Detect arm regions (for short sleeves or sleeveless)
+        for side in ["left", "right"]:
+            arm_key = f"{side}_arm"
+            if f"{side}_shoulder" in keypoints and f"{side}_elbow" in keypoints:
+                arm_mask = self._create_arm_skin_mask(keypoints, side, h, w)
+                if arm_mask is not None and arm_mask.sum() > 0:
+                    if self._verify_skin_region(image, arm_mask):
+                        regions[arm_key] = arm_mask
+        
+        return regions
+    
+    def _create_chest_region_mask(self, keypoints: Dict, h: int, w: int) -> Optional[np.ndarray]:
+        """Create mask for chest region (between shoulders, above waist)"""
+        mask = np.zeros((h, w), dtype=np.uint8)
+        
+        try:
+            left_shoulder = np.array(keypoints["left_shoulder"])
+            right_shoulder = np.array(keypoints["right_shoulder"])
+            # Ensure they're [x, y] format
+            if len(left_shoulder) > 2:
+                left_shoulder = left_shoulder[:2]
+            if len(right_shoulder) > 2:
+                right_shoulder = right_shoulder[:2]
+            
+            # Get neck point if available
+            if "neck" in keypoints:
+                neck = np.array(keypoints["neck"])
+                if len(neck) > 2:
+                    neck = neck[:2]
+                top_y = int(neck[1])
+            else:
+                top_y = int(min(left_shoulder[1], right_shoulder[1]))
+            
+            # Get waist/hip level
+            if "left_hip" in keypoints and "right_hip" in keypoints:
+                left_hip = np.array(keypoints["left_hip"])
+                right_hip = np.array(keypoints["right_hip"])
+                if len(left_hip) > 2:
+                    left_hip = left_hip[:2]
+                if len(right_hip) > 2:
+                    right_hip = right_hip[:2]
+                bottom_y = int((left_hip[1] + right_hip[1]) / 2)
+            else:
+                # Estimate from shoulders
+                bottom_y = int(max(left_shoulder[1], right_shoulder[1]) + 
+                              np.linalg.norm(left_shoulder - right_shoulder) * 1.5)
+            
+            # Create chest region polygon
+            center_x = int((left_shoulder[0] + right_shoulder[0]) / 2)
+            chest_width = int(np.linalg.norm(left_shoulder - right_shoulder) * 0.8)
+            
+            left_x = max(0, center_x - chest_width // 2)
+            right_x = min(w, center_x + chest_width // 2)
+            
+            chest_points = np.array([
+                [left_x, top_y],
+                [right_x, top_y],
+                [right_x, bottom_y],
+                [left_x, bottom_y]
+            ], dtype=np.int32)
+            
+            cv2.fillPoly(mask, [chest_points], 255)
+            
+            # Smooth edges
+            mask = cv2.GaussianBlur(mask, (7, 7), 0)
+            mask = (mask > 127).astype(np.uint8) * 255
+            
+        except Exception as e:
+            logger.warning(f"Chest region mask creation failed: {e}")
+            return None
+        
+        return mask
+    
+    def _create_arm_skin_mask(self, keypoints: Dict, side: str, h: int, w: int) -> Optional[np.ndarray]:
+        """Create mask for visible arm skin (for short sleeves)"""
+        mask = np.zeros((h, w), dtype=np.uint8)
+        
+        try:
+            shoulder_key = f"{side}_shoulder"
+            elbow_key = f"{side}_elbow"
+            
+            if shoulder_key not in keypoints or elbow_key not in keypoints:
+                return None
+            
+            shoulder = np.array(keypoints[shoulder_key])
+            elbow = np.array(keypoints[elbow_key])
+            # Ensure they're [x, y] format
+            if len(shoulder) > 2:
+                shoulder = shoulder[:2]
+            if len(elbow) > 2:
+                elbow = elbow[:2]
+            
+            # Create upper arm region (shoulder to elbow)
+            arm_length = np.linalg.norm(elbow - shoulder)
+            arm_width = max(10, int(arm_length * 0.2))
+            
+            # Draw arm region
+            p1 = tuple(shoulder.astype(int))
+            p2 = tuple(elbow.astype(int))
+            cv2.line(mask, p1, p2, 255, arm_width)
+            cv2.circle(mask, p1, arm_width // 2, 255, -1)
+            cv2.circle(mask, p2, arm_width // 2, 255, -1)
+            
+            # Smooth
+            mask = cv2.GaussianBlur(mask, (5, 5), 0)
+            mask = (mask > 127).astype(np.uint8) * 255
+            
+        except Exception as e:
+            logger.warning(f"Arm skin mask creation failed ({side}): {e}")
+            return None
+        
+        return mask
+    
+    def _verify_skin_region(self, image: np.ndarray, mask: np.ndarray) -> bool:
+        """Verify that a masked region actually contains skin (not clothing)"""
+        if mask.sum() == 0:
+            return False
+        
+        region_pixels = image[mask > 0]
+        if region_pixels.size == 0:
+            return False
+        
+        # Check if colors match skin tone ranges
+        # Convert to RGB if needed
+        if len(region_pixels.shape) == 1:
+            return False
+        
+        # Simple skin color detection
+        # Skin typically has: R > G > B, and R > 100, G > 50, B < 200
+        avg_color = np.mean(region_pixels, axis=0)
+        
+        if len(avg_color) >= 3:
+            # Handle BGR format (OpenCV default)
+            b, g, r = avg_color[0], avg_color[1], avg_color[2]
+            
+            # Skin color heuristic
+            is_skin = (r > g > b) and (r > 100) and (g > 50) and (b < 200)
+            
+            # Additional check: variance should be moderate (not uniform like clothing)
+            color_variance = np.var(region_pixels, axis=0).mean()
+            is_textured = color_variance > 200  # Not too uniform
+            
+            return is_skin and is_textured
+        
+        return False
+    
+    def _filter_skin_colors(self, pixels: np.ndarray) -> np.ndarray:
+        """Filter pixels to keep only skin-like colors"""
+        if pixels.size == 0:
+            return pixels
+        
+        # Reshape if needed
+        if len(pixels.shape) == 1:
+            return pixels
+        
+        # Convert to RGB for analysis
+        # Assuming BGR format from OpenCV
+        if pixels.shape[1] >= 3:
+            r = pixels[:, 2] if pixels.shape[1] >= 3 else pixels[:, 0]
+            g = pixels[:, 1] if pixels.shape[1] >= 2 else pixels[:, 0]
+            b = pixels[:, 0]
+            
+            # Skin color conditions
+            skin_mask = (r > g) & (g > b) & (r > 100) & (g > 50) & (b < 200)
+            
+            return pixels[skin_mask]
+        
+        return pixels
 
     def _extract_skin_reference(self, image: np.ndarray, face: Dict) -> Optional[np.ndarray]:
         """Extract a downsampled patch from the face region for skin reference."""

@@ -61,8 +61,11 @@ class Preprocessor:
                 result["error"] = f"Image too small: {w}x{h}"
                 return result
             
-            if h > 4096 or w > 4096:
-                result["error"] = f"Image too large: {w}x{h}"
+            # Use config max_image_size, but allow up to 8192 for validation
+            # (actual resizing will happen in preprocessing)
+            max_dimension = max(self.max_image_size * 4, 8192)  # Allow larger images, will be resized
+            if h > max_dimension or w > max_dimension:
+                result["error"] = f"Image too large: {w}x{h} (max: {max_dimension})"
                 return result
             
             # Extract metadata

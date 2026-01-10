@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply min-h-screen bg-slate-100 dark:bg-brandDarker bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.25),_transparent_45%),_linear-gradient(135deg,_rgba(102,126,234,0.15),_rgba(118,75,162,0.25))] transition-colors duration-500 text-slate-900 dark:text-slate-100;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply rounded-full bg-gradient-to-r from-brandAccent to-brandAccentAlt px-6 py-3 text-white font-semibold shadow-lg shadow-brandAccent/40 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply rounded-full border border-slate-300/70 px-6 py-3 text-slate-700 dark:text-slate-200 dark:border-white/20 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors;
+  }
+  
+  .card {
+    @apply rounded-[28px] border border-white/50 dark:border-white/10 bg-white/90 dark:bg-brandDark/70 p-8 shadow-xl shadow-slate-900/10 dark:shadow-black/40;
+  }
+}
+

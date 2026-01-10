@@ -74,3 +74,22 @@ htmlcov/
 # Docker
 .dockerignore
 
+# Sensitive files with API keys or credentials
+test_gemini_key.py
+*_key.py
+*_secret.py
+*_credentials.py
+server_logs.txt
+test_output.txt
+
+# Large image files in root
+*.jpg
+*.jpeg
+IMG*.jpg
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+static/dist/
+

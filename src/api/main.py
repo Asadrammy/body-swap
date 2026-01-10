@@ -1,11 +1,15 @@
 """FastAPI application main"""
 
+import time
+import psutil
+import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pathlib import Path
-from .routes import router
+from typing import Dict, Any
+from .routes import router, jobs
 from ..utils.logger import setup_logger, get_logger
 from ..utils.config import get_config
 
@@ -31,13 +35,24 @@ app.add_middleware(
 
 # Get paths
 project_root = Path(__file__).parent.parent.parent.resolve()
-frontend_path = project_root / "frontend"
-index_file = frontend_path / "index.html"
+templates_path = project_root / "templates"
+static_path = project_root / "static"
+index_file = templates_path / "index.html"
 
 logger.info(f"Project root: {project_root}")
-logger.info(f"Frontend path: {frontend_path}")
-logger.info(f"Frontend exists: {frontend_path.exists()}")
+logger.info(f"Templates path: {templates_path}")
+logger.info(f"Static path: {static_path}")
+logger.info(f"Templates exists: {templates_path.exists()}")
+logger.info(f"Static exists: {static_path.exists()}")
 logger.info(f"Index.html exists: {index_file.exists()}")
+
+# Favicon endpoint - handle browser favicon requests
+@app.get("/favicon.ico")
+async def favicon():
+    """Handle favicon requests"""
+    # Return 204 No Content to suppress 404 errors
+    from fastapi.responses import Response
+    return Response(status_code=204)
 
 # Root endpoint - MUST be defined BEFORE mounts and routers
 @app.get("/", response_class=HTMLResponse)
@@ -65,7 +80,7 @@ async def serve_frontend():
             <body>
                 <h1>Frontend Not Found</h1>
                 <p>Expected path: {index_file}</p>
-                <p>Frontend path: {frontend_path}</p>
+                <p>Templates path: {templates_path}</p>
                 <p>Project root: {project_root}</p>
                 <p><a href="/docs">API Documentation</a></p>
             </body>
@@ -74,21 +89,198 @@ async def serve_frontend():
         return HTMLResponse(content=error_html, status_code=404)
 
 # Mount static files (CSS, JS, images) - AFTER root route
-if frontend_path.exists():
+if static_path.exists():
     try:
-        app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
-        logger.info(f"✓ Static files mounted at /static from: {frontend_path}")
+        app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+        logger.info(f"✓ Static files mounted at /static from: {static_path}")
     except Exception as e:
         logger.error(f"✗ Could not mount static files: {e}")
+else:
+    logger.warning(f"Static directory not found at: {static_path}")
 
 # Include API routes
 app.include_router(router, prefix="/api/v1", tags=["swap"])
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Pre-load models at startup to avoid errors on first request"""
+    logger.info("=" * 80)
+    logger.info("🚀 PRE-LOADING MODELS AT STARTUP")
+    logger.info("=" * 80)
+    
+    try:
+        from ..models.generator import get_global_generator
+        import torch
+        
+        logger.info("Loading Stable Diffusion models...")
+        logger.info(f"GPU Available: {torch.cuda.is_available()}")
+        
+        # Get global generator (will load models if not already loaded)
+        generator = get_global_generator()
+        logger.info(f"Generator device: {generator.device}")
+        
+        # Verify models are loaded
+        if generator.inpaint_pipe is not None:
+            logger.info("✅ Models loaded successfully!")
+            if torch.cuda.is_available():
+                mem = torch.cuda.memory_reserved(0) / 1e9
+                logger.info(f"✅ GPU Memory: {mem:.2f} GB")
+                
+                # Verify device
+                device_str = str(next(generator.inpaint_pipe.unet.parameters()).device)
+                logger.info(f"✅ Models on: {device_str}")
+            else:
+                logger.info("✅ Models loaded on CPU")
+        else:
+            logger.error("❌ Models failed to load!")
+            logger.warning("⚠️  Server will start but refinement may not work until models are downloaded")
+            
+    except Exception as e:
+        logger.error(f"Error pre-loading models: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        logger.warning("⚠️  Server will start but models may not be available")
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+    """
+    Health check endpoint for monitoring and load balancers.
+    Returns detailed system health status.
+    """
+    try:
+        # Check GPU availability
+        gpu_available = torch.cuda.is_available() if torch is not None else False
+        gpu_count = torch.cuda.device_count() if gpu_available else 0
+        
+        # Check system resources
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        # Use current drive on Windows, or root on Linux
+        import os
+        disk_path = os.path.splitdrive(os.getcwd())[0] + '\\' if os.name == 'nt' else '/'
+        try:
+            disk = psutil.disk_usage(disk_path)
+        except:
+            # Fallback to current directory
+            disk = psutil.disk_usage('.')
+        
+        # Check active jobs
+        active_jobs = sum(1 for job in jobs.values() if job.get("status") in ["pending", "processing"])
+        
+        health_status = {
+            "status": "healthy",
+            "timestamp": time.time(),
+            "system": {
+                "cpu_percent": cpu_percent,
+                "memory_percent": memory.percent,
+                "memory_available_mb": memory.available / (1024 * 1024),
+                "disk_percent": disk.percent,
+                "disk_free_gb": disk.free / (1024 * 1024 * 1024)
+            },
+            "gpu": {
+                "available": gpu_available,
+                "count": gpu_count,
+                "devices": [
+                    {
+                        "id": i,
+                        "name": torch.cuda.get_device_name(i),
+                        "memory_allocated_mb": torch.cuda.memory_allocated(i) / (1024 * 1024),
+                        "memory_reserved_mb": torch.cuda.memory_reserved(i) / (1024 * 1024)
+                    } for i in range(gpu_count)
+                ] if gpu_available else []
+            },
+            "api": {
+                "active_jobs": active_jobs,
+                "total_jobs": len(jobs)
+            }
+        }
+        
+        # Determine overall health
+        if cpu_percent > 95 or memory.percent > 95 or disk.percent > 95:
+            health_status["status"] = "degraded"
+        elif not gpu_available and get_config().get("models", {}).get("generator", {}).get("device") == "cuda":
+            health_status["status"] = "warning"  # GPU expected but not available
+        
+        return JSONResponse(content=health_status)
+        
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return JSONResponse(
+            content={"status": "unhealthy", "error": str(e)},
+            status_code=503
+        )
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """
+    Prometheus-style metrics endpoint for monitoring.
+    Returns key performance and system metrics.
+    """
+    try:
+        # System metrics
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Job metrics
+        job_statuses = {}
+        for job in jobs.values():
+            status = job.get("status", "unknown")
+            job_statuses[status] = job_statuses.get(status, 0) + 1
+        
+        # GPU metrics
+        gpu_metrics = []
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                gpu_metrics.append({
+                    "device_id": i,
+                    "name": torch.cuda.get_device_name(i),
+                    "memory_allocated_mb": torch.cuda.memory_allocated(i) / (1024 * 1024),
+                    "memory_reserved_mb": torch.cuda.memory_reserved(i) / (1024 * 1024),
+                    "memory_total_mb": torch.cuda.get_device_properties(i).total_memory / (1024 * 1024),
+                    "utilization_percent": (torch.cuda.memory_allocated(i) / torch.cuda.get_device_properties(i).total_memory) * 100
+                })
+        
+        metrics = {
+            "timestamp": time.time(),
+            "system": {
+                "cpu_percent": cpu_percent,
+                "memory": {
+                    "total_mb": memory.total / (1024 * 1024),
+                    "available_mb": memory.available / (1024 * 1024),
+                    "used_mb": memory.used / (1024 * 1024),
+                    "percent": memory.percent
+                },
+                "disk": {
+                    "total_gb": disk.total / (1024 * 1024 * 1024),
+                    "free_gb": disk.free / (1024 * 1024 * 1024),
+                    "used_gb": disk.used / (1024 * 1024 * 1024),
+                    "percent": disk.percent
+                }
+            },
+            "jobs": {
+                "total": len(jobs),
+                "by_status": job_statuses,
+                "active": sum(1 for job in jobs.values() if job.get("status") in ["pending", "processing"])
+            },
+            "gpu": {
+                "available": torch.cuda.is_available(),
+                "count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+                "devices": gpu_metrics
+            }
+        }
+        
+        return JSONResponse(content=metrics)
+        
+    except Exception as e:
+        logger.error(f"Metrics error: {e}")
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
 
 
 if __name__ == "__main__":

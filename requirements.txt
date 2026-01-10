@@ -35,6 +35,8 @@ python-dotenv>=1.0.0
 loguru>=0.7.0
 tqdm>=4.66.0
 pyyaml>=6.0
+psutil>=5.9.0  # For system monitoring
+peft>=0.6.0  # For LoRA support
 
 # Optional dependencies
 # dlib>=19.24.0  # Alternative face detector (requires manual build)

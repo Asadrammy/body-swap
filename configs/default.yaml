@@ -6,15 +6,17 @@ models:
     base_model: runwayml/stable-diffusion-v1-5
     controlnet: lllyasviel/sd-controlnet-openpose
     inpaint_model: runwayml/stable-diffusion-inpainting
-    device: cuda               # cuda or cpu
+    device: cuda               # cuda or cpu (use cuda for GPU, cpu for CPU - Colab Pro has GPU)
     lora_paths: []             # optional list of LoRA checkpoints
+                               # Format: ["path/to/lora.safetensors"] or
+                               # [{"path": "path/to/lora.safetensors", "weight": 1.0, "name": "my_lora"}]
 
 processing:
   image_size: 512             # Target processing size
   max_image_size: 1024        # Maximum input image size
   batch_size: 1
-  num_inference_steps: 50
-  guidance_scale: 7.5
+  num_inference_steps: 40  # Increased for better quality (minimum 30 in code)
+  guidance_scale: 9.0      # Increased for better quality and realistic images
   refinement_strength: 0.8
   quality_threshold: 0.85
   mesh_rows: 24

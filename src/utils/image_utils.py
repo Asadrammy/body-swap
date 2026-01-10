@@ -38,11 +38,41 @@ def save_image(image: np.ndarray, output_path: Union[str, Path], quality: int = 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Validate image before saving
+    if image is None or image.size == 0:
+        raise ValueError(f"Cannot save empty image to {output_path}")
+    
+    if len(image.shape) < 2:
+        raise ValueError(f"Invalid image shape: {image.shape}")
+    
+    # Check for solid color - be more lenient, just warn
+    if len(image.shape) == 3:
+        unique_colors = len(np.unique(image.reshape(-1, image.shape[-1]), axis=0))
+        std_dev = np.std(image)
+        # Also check if all pixels are the same
+        is_uniform = np.all(image == image.flat[0])
+    else:
+        unique_colors = len(np.unique(image))
+        std_dev = np.std(image)
+        is_uniform = np.all(image == image.flat[0])
+    
+    if is_uniform or unique_colors < 10:
+        raise ValueError(f"Cannot save solid/uniform color image (unique_colors={unique_colors}, is_uniform={is_uniform}) to {output_path}. This indicates a pipeline error.")
+    
+    if std_dev < 5.0:
+        raise ValueError(f"Cannot save low-variance image (std={std_dev:.2f}) to {output_path}. This indicates a pipeline error.")
+    
     # Convert numpy array to PIL Image
     if image.dtype != np.uint8:
         image = (np.clip(image, 0, 1) * 255).astype(np.uint8)
     
-    img = Image.fromarray(image)
+    # Ensure image is in correct format
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        img = Image.fromarray(image, 'RGB')
+    elif len(image.shape) == 2:
+        img = Image.fromarray(image, 'L')
+    else:
+        img = Image.fromarray(image)
     
     # Save with appropriate format
     if output_path.suffix.lower() in ['.jpg', '.jpeg']:
@@ -188,10 +218,28 @@ def blend_images(img1: np.ndarray, img2: np.ndarray, alpha: float = 0.5, mask: O
     Returns:
         Blended image
     """
+    # Ensure img1 and img2 have the same dimensions
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+    
+    if (h1, w1) != (h2, w2):
+        # Resize img2 to match img1
+        img2 = cv2.resize(img2, (w1, h1), interpolation=cv2.INTER_LINEAR)
+    
     if mask is not None:
+        # Ensure mask matches image dimensions
+        h_mask, w_mask = mask.shape[:2]
+        if (h_mask, w_mask) != (h1, w1):
+            mask = cv2.resize(mask, (w1, h1), interpolation=cv2.INTER_NEAREST)
+        
         mask = mask.astype(np.float32) / 255.0
         if len(mask.shape) == 2:
             mask = mask[:, :, np.newaxis]
+        
+        # Ensure mask has same number of channels as images
+        if len(img1.shape) == 3 and mask.shape[2] == 1:
+            mask = np.repeat(mask, img1.shape[2], axis=2)
+        
         blended = img1 * (1 - mask) + img2 * mask
     else:
         blended = img1 * (1 - alpha) + img2 * alpha

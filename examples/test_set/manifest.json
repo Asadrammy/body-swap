@@ -1,0 +1,152 @@
+{
+  "test_set_version": "1.0",
+  "description": "Test set for face-body swap pipeline validation",
+  "created_by": "generate_test_set.py",
+  "test_categories": {
+    "average": {
+      "description": "Average body type subjects",
+      "expected_subjects": [
+        "adult_male_average",
+        "adult_female_average"
+      ],
+      "input_dir": "inputs/average",
+      "output_dir": "outputs/average"
+    },
+    "obese": {
+      "description": "Plus-size/obese body type subjects",
+      "expected_subjects": [
+        "adult_male_obese",
+        "adult_female_obese"
+      ],
+      "input_dir": "inputs/obese",
+      "output_dir": "outputs/obese"
+    }
+  },
+  "templates": [
+    {
+      "id": "tpl_individual_casual_001",
+      "name": "Casual Street Portrait",
+      "category": "individual",
+      "description": "Full-body portrait with casual denim outfit and soft daylight background.",
+      "recommended_for": [
+        "adult_male",
+        "adult_female"
+      ]
+    },
+    {
+      "id": "tpl_individual_action_002",
+      "name": "Dynamic Action Shot",
+      "category": "individual",
+      "description": "High-energy pose with visible torso and motion blur, ideal for action outfits.",
+      "recommended_for": [
+        "adult_male",
+        "adult_female"
+      ]
+    },
+    {
+      "id": "tpl_couple_garden_001",
+      "name": "Romantic Garden Couple",
+      "category": "couple",
+      "description": "Couple pose in garden setting with coordinated outfits and soft lighting.",
+      "recommended_for": [
+        "adult_couple"
+      ]
+    },
+    {
+      "id": "tpl_family_studio_001",
+      "name": "Family Studio Portrait",
+      "category": "family",
+      "description": "Studio-lit family portrait template for 3-4 subjects.",
+      "recommended_for": [
+        "family",
+        "parent_child"
+      ]
+    },
+    {
+      "id": "tpl_couple_action_002",
+      "name": "Dynamic Couple Dance",
+      "category": "couple",
+      "description": "Action-oriented couple pose with flowing garments and dramatic lighting.",
+      "recommended_for": [
+        "adult_couple"
+      ]
+    }
+  ],
+  "test_scenarios": [
+    {
+      "id": "scenario_001",
+      "name": "Average Male - Casual Portrait",
+      "subject_type": "average",
+      "subject_gender": "male",
+      "template_id": "tpl_individual_casual_001",
+      "expected_features": [
+        "natural face swap",
+        "body pose matching",
+        "clothing adaptation",
+        "seamless blending"
+      ]
+    },
+    {
+      "id": "scenario_002",
+      "name": "Average Female - Action Shot",
+      "subject_type": "average",
+      "subject_gender": "female",
+      "template_id": "tpl_individual_action_002",
+      "expected_features": [
+        "action pose handling",
+        "open chest body conditioning",
+        "dynamic expression matching"
+      ]
+    },
+    {
+      "id": "scenario_003",
+      "name": "Obese Male - Casual Portrait",
+      "subject_type": "obese",
+      "subject_gender": "male",
+      "template_id": "tpl_individual_casual_001",
+      "expected_features": [
+        "body size adaptation",
+        "clothing fit for plus-size",
+        "natural proportions"
+      ]
+    },
+    {
+      "id": "scenario_004",
+      "name": "Obese Female - Casual Portrait",
+      "subject_type": "obese",
+      "subject_gender": "female",
+      "template_id": "tpl_individual_casual_001",
+      "expected_features": [
+        "plus-size body adaptation",
+        "clothing scaling",
+        "realistic body proportions"
+      ]
+    },
+    {
+      "id": "scenario_005",
+      "name": "Average Couple - Garden Scene",
+      "subject_type": "average",
+      "subject_gender": "couple",
+      "template_id": "tpl_couple_garden_001",
+      "expected_features": [
+        "multi-subject processing",
+        "couple face matching",
+        "coordinated body warping"
+      ]
+    }
+  ],
+  "usage_instructions": {
+    "step_1": "Place customer photos in inputs/average/ or inputs/obese/",
+    "step_2": "Run pipeline with test templates",
+    "step_3": "Compare outputs in outputs/ directory",
+    "step_4": "Review quality metrics and refinement masks",
+    "step_5": "Generate comparison images showing before/after"
+  },
+  "quality_expectations": {
+    "face_similarity": "> 0.75",
+    "pose_accuracy": "> 0.75",
+    "clothing_fit": "> 0.70",
+    "seamless_blending": "> 0.72",
+    "overall_score": "> 0.85"
+  }
+}

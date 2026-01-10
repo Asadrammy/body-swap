@@ -9,6 +9,7 @@ from ..utils.config import get_config
 from ..models.pose_detector import PoseDetector
 from ..models.face_detector import FaceDetector
 from ..models.segmenter import Segmenter
+from .emotion_handler import EmotionHandler
 
 logger = get_logger(__name__)
 
@@ -21,6 +22,7 @@ class TemplateAnalyzer:
         self.pose_detector = PoseDetector()
         self.face_detector = FaceDetector()
         self.segmenter = Segmenter()
+        self.emotion_handler = EmotionHandler()
     
     def analyze_template(self, template_image: np.ndarray, faces: List[Dict]) -> Dict:
         """
@@ -42,10 +44,13 @@ class TemplateAnalyzer:
             "metadata": {}
         }
         
-        # Analyze pose
+        # Analyze pose (including action poses)
         pose_data = self.pose_detector.detect_pose(template_image)
         if pose_data:
-            result["pose"] = pose_data[0]
+            pose_result = pose_data[0]
+            # Detect if this is an action pose
+            pose_result["is_action_pose"] = self._detect_action_pose(pose_result)
+            result["pose"] = pose_result
         
         # Analyze clothing
         result["clothing"] = self._analyze_clothing(template_image, result["pose"])
@@ -135,53 +140,36 @@ class TemplateAnalyzer:
     
     def _analyze_expression(self, image: np.ndarray, face: Dict) -> Dict:
         """
-        Analyze facial expression from template
+        Analyze facial expression from template using Mickmumpitz workflow
         
         Args:
             image: Template image
             face: Face detection result
         
         Returns:
-            Expression analysis result
+            Enhanced expression analysis result with emotion data
         """
         landmarks = face.get("landmarks", [])
+        bbox = face.get("bbox", [0, 0, 0, 0])
         
         if len(landmarks) < 5:
-            return {"type": "neutral", "landmarks": landmarks}
+            # Return basic neutral emotion
+            return self.emotion_handler._get_emotion_data("neutral")
         
-        # Extract key facial features
-        expression = {
-            "landmarks": landmarks,
-            "mouth_open": False,
-            "smile": False,
-            "eyes_open": True,
-            "eyebrow_raised": False
-        }
+        # Convert landmarks to numpy array
+        if not isinstance(landmarks, np.ndarray):
+            landmarks = np.array(landmarks)
         
-        # Analyze mouth
-        if len(landmarks) >= 5:
-            # Assuming landmarks follow standard format
-            # This is simplified - real implementation would use more landmarks
-            mouth_points = landmarks[-2:] if len(landmarks) >= 5 else []
-            if len(mouth_points) == 2:
-                mouth_distance = np.linalg.norm(
-                    np.array(mouth_points[0]) - np.array(mouth_points[1])
-                )
-                expression["mouth_open"] = mouth_distance > 20  # Threshold
+        # Use emotion handler for enhanced detection
+        emotion_data = self.emotion_handler.detect_emotion_from_landmarks(
+            landmarks,
+            tuple(bbox) if len(bbox) == 4 else None
+        )
         
-        # Analyze eyes (simplified)
-        if len(landmarks) >= 2:
-            eye_points = landmarks[:2] if len(landmarks) >= 2 else []
-            # Check if eyes are visible/open
-            expression["eyes_open"] = True  # Simplified
+        # Add landmarks to emotion data for backward compatibility
+        emotion_data["landmarks"] = landmarks.tolist() if isinstance(landmarks, np.ndarray) else landmarks
         
-        # Classify expression type
-        if expression["smile"] or (expression["mouth_open"] and not expression["smile"]):
-            expression["type"] = "happy" if expression["smile"] else "surprised"
-        else:
-            expression["type"] = "neutral"
-        
-        return expression
+        return emotion_data
     
     def _analyze_background(self, image: np.ndarray, pose_data: Optional[Dict]) -> Dict:
         """
@@ -266,4 +254,57 @@ class TemplateAnalyzer:
             # Simple skin color range (can be improved)
             return (r > g > b) and (r > 100) and (g > 50) and (b < 200)
         return False
+    
+    def _detect_action_pose(self, pose_data: Dict) -> bool:
+        """
+        Detect if the pose is an action pose (running, jumping, dancing, etc.)
+        Important for handling dynamic expressions and body styles.
+        """
+        keypoints = pose_data.get("keypoints", {})
+        
+        if not keypoints:
+            return False
+        
+        # Check for action indicators:
+        # 1. Arms raised (wrist above shoulder)
+        # 2. Legs spread (ankles far from hips)
+        # 3. Body leaning (non-upright)
+        # 4. Dynamic limb positions
+        
+        action_score = 0.0
+        
+        # Check arms raised
+        if "left_shoulder" in keypoints and "left_wrist" in keypoints:
+            if keypoints["left_wrist"][1] < keypoints["left_shoulder"][1]:
+                action_score += 0.3
+        if "right_shoulder" in keypoints and "right_wrist" in keypoints:
+            if keypoints["right_wrist"][1] < keypoints["right_shoulder"][1]:
+                action_score += 0.3
+        
+        # Check legs spread
+        if "left_hip" in keypoints and "left_ankle" in keypoints and \
+           "right_hip" in keypoints and "right_ankle" in keypoints:
+            hip_center_x = (keypoints["left_hip"][0] + keypoints["right_hip"][0]) / 2
+            ankle_center_x = (keypoints["left_ankle"][0] + keypoints["right_ankle"][0]) / 2
+            spread = abs(ankle_center_x - hip_center_x)
+            hip_width = abs(keypoints["left_hip"][0] - keypoints["right_hip"][0])
+            if spread > hip_width * 0.5:
+                action_score += 0.2
+        
+        # Check for body lean (non-upright)
+        if "neck" in keypoints and "left_hip" in keypoints and "right_hip" in keypoints:
+            neck = np.array(keypoints["neck"])
+            hip_center = np.array([
+                (keypoints["left_hip"][0] + keypoints["right_hip"][0]) / 2,
+                (keypoints["left_hip"][1] + keypoints["right_hip"][1]) / 2
+            ])
+            vertical = np.array([0, 1])
+            body_vector = hip_center - neck
+            if np.linalg.norm(body_vector) > 0:
+                body_vector_norm = body_vector / np.linalg.norm(body_vector)
+                angle = np.arccos(np.clip(np.dot(body_vector_norm, vertical), -1, 1))
+                if angle > 0.2:  # More than ~11 degrees from vertical
+                    action_score += 0.2
+        
+        return action_score >= 0.4  # Threshold for action pose
 

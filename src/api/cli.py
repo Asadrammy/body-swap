@@ -106,12 +106,48 @@ class SwapCLI:
                         template_data["faces"][0],
                         expression_match
                     )
-                    result = self.refiner.refine_face(
+                    
+                    # Early quality check after face compositing to catch distortion early
+                    face_bbox = template_data["faces"][0].get("bbox", [0, 0, 0, 0])
+                    early_quality = self.quality_control.assess_quality(
                         result,
-                        template_data["faces"][0].get("bbox", [0, 0, 0, 0]),
-                        expression_type=expression_match.get("expression_type", "neutral"),
-                        expression_details=expression_match
+                        [customer_faces[0]] if customer_faces else [],
+                        template_data["faces"],
+                        template_analysis,
+                        body_shape=fused_body_shape
                     )
+                    
+                    # If severe distortion detected, skip refinement and use original template face
+                    if early_quality.get("face_distortion", 0.0) > 0.4:
+                        logger.error(f"CRITICAL: Severe face distortion detected ({early_quality.get('face_distortion', 0.0):.2f}) - skipping face refinement to prevent further distortion")
+                        # Return to template image and try again with no expression warping
+                        result = template_data["image"].copy()
+                        # Try compositing without expression matching
+                        expression_match_no_warp = {
+                            "warped_landmarks": customer_faces[0].get("landmarks", []),
+                            "expression_applied": False,
+                            "expression_type": template_analysis.get("expression", {}).get("type", "neutral")
+                        }
+                        # Preserve emotion data even without warping for Mickmumpitz workflow
+                        template_expression = template_analysis.get("expression", {})
+                        if isinstance(template_expression, dict):
+                            for key in ["keywords", "intensity", "descriptors", "features"]:
+                                if key in template_expression:
+                                    expression_match_no_warp[key] = template_expression[key]
+                        result = self.face_processor.composite_face(
+                            face_identity["aligned_face"],
+                            result,
+                            template_data["faces"][0],
+                            expression_match_no_warp
+                        )
+                    else:
+                        # Only refine if no severe distortion
+                        result = self.refiner.refine_face(
+                            result,
+                            face_bbox,
+                            expression_type=expression_match.get("expression_type", "neutral"),
+                            expression_details=expression_match
+                        )
                     if export_intermediate:
                         intermediate_results["face_composite"] = result
                 else:
@@ -135,11 +171,14 @@ class SwapCLI:
                 customer_pose = {"keypoints": customer_body.get("pose_keypoints", {})}
                 
                 if customer_pose["keypoints"]:
+                    blueprint = self.body_warper.build_warp_blueprint(customer_body, template_pose)
                     warped_body = self.body_warper.warp_body_to_pose(
                         customer_data["images"][0],
                         customer_pose,
                         template_pose,
-                        customer_body.get("body_mask")
+                        customer_body.get("body_mask"),
+                        blueprint=blueprint,
+                        customer_body_shape=customer_body
                     )
                     
                     adapted = self.body_warper.adapt_clothing_to_body(

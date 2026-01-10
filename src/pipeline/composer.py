@@ -42,13 +42,25 @@ class Composer:
         h_body, w_body = warped_body.shape[:2]
         
         if (h_body, w_body) != (h_bg, w_bg):
-            warped_body = cv2.resize(warped_body, (w_bg, h_bg))
+            warped_body = cv2.resize(warped_body, (w_bg, h_bg), interpolation=cv2.INTER_LINEAR)
             if body_mask is not None:
-                body_mask = cv2.resize(body_mask, (w_bg, h_bg))
+                # Resize mask using nearest neighbor to preserve binary values
+                body_mask = cv2.resize(body_mask, (w_bg, h_bg), interpolation=cv2.INTER_NEAREST)
+        
+        # Ensure body_mask matches warped_body dimensions (safety check)
+        if body_mask is not None:
+            h_mask, w_mask = body_mask.shape[:2]
+            if (h_mask, w_mask) != (h_bg, w_bg):
+                body_mask = cv2.resize(body_mask, (w_bg, h_bg), interpolation=cv2.INTER_NEAREST)
         
         # Match lighting
         if lighting_info:
             warped_body = self._match_lighting(warped_body, template_background, lighting_info)
+        
+        # Validate inputs
+        if warped_body is None or warped_body.size == 0:
+            logger.warning("Warped body is empty, returning template background")
+            return template_background.copy()
         
         # Blend
         if body_mask is not None:
@@ -56,6 +68,23 @@ class Composer:
         else:
             # Default blending
             result = blend_images(template_background, warped_body, alpha=0.9)
+        
+        # Validate result
+        if result is None or result.size == 0:
+            logger.warning("Composition result is empty, returning template background")
+            return template_background.copy()
+        
+        # Check if result is solid color
+        if len(result.shape) == 3:
+            unique_colors = len(np.unique(result.reshape(-1, result.shape[-1]), axis=0))
+            std_dev = np.std(result)
+        else:
+            unique_colors = len(np.unique(result))
+            std_dev = np.std(result)
+        
+        if unique_colors < 10 or std_dev < 5.0:
+            logger.warning(f"Composition result is solid color (unique_colors={unique_colors}, std={std_dev:.2f}), returning template background")
+            return template_background.copy()
         
         return result
     

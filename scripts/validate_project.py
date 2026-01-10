@@ -76,23 +76,23 @@ def main():
     # Check file structure
     missing = check_file_structure()
     if missing:
-        print(f"✗ Missing files: {missing}")
+        print(f"[X] Missing files: {missing}")
         return 1
     else:
-        print("✓ All required files present")
+        print("[OK] All required files present")
     
     # Check syntax
     print("\nValidating Python syntax...")
     syntax_errors = check_python_syntax()
     if syntax_errors:
-        print(f"✗ Syntax errors found:")
+        print(f"[X] Syntax errors found:")
         for file_path, error in syntax_errors:
             print(f"  {file_path}: {error}")
         return 1
     else:
-        print("✓ No syntax errors")
+        print("[OK] No syntax errors")
     
-    print("\n✓ Project validation passed!")
+    print("\n[OK] Project validation passed!")
     return 0
 
 
