@@ -24,6 +24,9 @@ services:
       - TEMP_DIR=/app/temp
     deploy:
       resources:
+        limits:
+          cpus: '4'
+          memory: 16G
         reservations:
           devices:
             - driver: nvidia

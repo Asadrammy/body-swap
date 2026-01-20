@@ -1,0 +1,124 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation (not needed in container)
+*.md
+!README.md
+docs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Models (will be downloaded or mounted)
+models/
+*.pth
+*.pt
+*.onnx
+*.pkl
+*.h5
+*.ckpt
+*.safetensors
+
+# Outputs (will be mounted as volume)
+outputs/
+temp/
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Logs (will be mounted as volume)
+logs/
+*.log
+
+# Environment (will be provided separately)
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test_*.py
+*_test.py
+tests/
+
+# Windows-specific files (not needed on Linux)
+*.bat
+*.ps1
+*.cmd
+
+# Frontend build artifacts (if not needed)
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+
+# Large test images
+examples/
+*.zip
+
+# Sensitive files
+*_key.py
+*_secret.py
+*_credentials.py
+test_gemini_key.py
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Other
+*.bak
+*.tmp
+*.swp
+.cache/
+
