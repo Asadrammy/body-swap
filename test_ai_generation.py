@@ -348,8 +348,8 @@ def main():
     parser.add_argument(
         "--customer-image",
         type=str,
-        default=r"D:\projects\image\face-body-swap\1760713603491 (1).jpg",
-        help="Path to customer image"
+        default=os.getenv("TEST_CUSTOMER_IMAGE", "1760713603491 (1).jpg"),
+        help="Path to customer image (can also use TEST_CUSTOMER_IMAGE env var)"
     )
     parser.add_argument(
         "--template",

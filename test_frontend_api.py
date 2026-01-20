@@ -5,9 +5,14 @@ import json
 from pathlib import Path
 import os
 
-# Files
-customer_image = r"D:\projects\image\face-body-swap\1760713603491 (1).jpg"
-template_image = r"D:\projects\image\face-body-swap\IMG20251019131550.jpg"
+# Files - Use relative paths (portable across platforms)
+project_root = Path(__file__).parent
+customer_image = project_root / "1760713603491 (1).jpg"
+template_image = project_root / "IMG20251019131550.jpg"
+
+# Allow override via environment variables
+customer_image = os.getenv("TEST_CUSTOMER_IMAGE", str(customer_image))
+template_image = os.getenv("TEST_TEMPLATE_IMAGE", str(template_image))
 
 print("=" * 80)
 print("Testing Frontend API - Creating Swap Job")

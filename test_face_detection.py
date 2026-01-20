@@ -2,6 +2,7 @@
 """Test face detection on customer image"""
 
 import sys
+import os
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -12,8 +13,14 @@ from src.utils.logger import setup_logger
 setup_logger()
 
 def main():
-    customer_image = r"D:\projects\image\face-body-swap\1760713603491 (1).jpg"
-    template_image = r"D:\projects\image\face-body-swap\swap1 (1).png"
+    # Use relative paths from project root (portable across platforms)
+    project_root = Path(__file__).parent
+    customer_image = project_root / "1760713603491 (1).jpg"
+    template_image = project_root / "swap1 (1).png"
+    
+    # Allow override via environment variables
+    customer_image = os.getenv("TEST_CUSTOMER_IMAGE", str(customer_image))
+    template_image = os.getenv("TEST_TEMPLATE_IMAGE", str(template_image))
     
     print("=" * 60)
     print("Face Detection Test")

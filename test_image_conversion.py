@@ -3,6 +3,7 @@
 Test script to load all models and process the user's image
 """
 import sys
+import os
 from pathlib import Path
 import traceback
 
@@ -22,10 +23,16 @@ def main():
     logger.info("🚀 STARTING IMAGE CONVERSION TEST")
     logger.info("=" * 80)
     
-    # Paths
-    customer_photo = r"D:\projects\image\face-body-swap\1760713603491 (1).jpg"
-    template = r"D:\projects\image\face-body-swap\examples\templates\individual_casual_001.png"
-    output = r"D:\projects\image\face-body-swap\outputs\test_result.png"
+    # Paths - Use relative paths (portable across platforms)
+    project_root = Path(__file__).parent
+    customer_photo = project_root / "1760713603491 (1).jpg"
+    template = project_root / "examples" / "templates" / "individual_casual_001.png"
+    output = project_root / "outputs" / "test_result.png"
+    
+    # Allow override via environment variables
+    customer_photo = os.getenv("TEST_CUSTOMER_IMAGE", str(customer_photo))
+    template = os.getenv("TEST_TEMPLATE_IMAGE", str(template))
+    output = os.getenv("TEST_OUTPUT_IMAGE", str(output))
     
     # Ensure output directory exists
     output_path = Path(output)

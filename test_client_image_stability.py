@@ -15,8 +15,10 @@ logger = get_logger(__name__)
 def main():
     """Test pipeline with client image"""
     
-    # Client image path
-    customer_image = r"D:\projects\image\face-body-swap\IMG20251019131550.jpg"
+    # Client image path - Use relative path (portable across platforms)
+    project_root = Path(__file__).parent
+    customer_image = project_root / "IMG20251019131550.jpg"
+    customer_image = os.getenv("TEST_CUSTOMER_IMAGE", str(customer_image))
     
     # Check if image exists
     if not os.path.exists(customer_image):
