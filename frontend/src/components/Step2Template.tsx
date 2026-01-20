@@ -8,6 +8,8 @@ interface Step2TemplateProps {
   onTemplateSelect: (template: TemplateMetadata) => void;
   onBack: () => void;
   onNext: () => void;
+  customPrompt?: string;
+  onCustomPromptChange?: (prompt: string) => void;
 }
 
 const categories = [
@@ -22,6 +24,8 @@ export function Step2Template({
   onTemplateSelect,
   onBack,
   onNext,
+  customPrompt = '',
+  onCustomPromptChange,
 }: Step2TemplateProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const { data, isLoading, error } = useTemplates(
@@ -116,6 +120,23 @@ export function Step2Template({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Custom Prompt Field */}
+      <div className="space-y-3">
+        <label className="block text-lg font-semibold">
+          Custom AI Prompt (Optional)
+        </label>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Provide a custom prompt to guide AI image manipulation. Leave empty to use auto-generated prompts.
+        </p>
+        <textarea
+          value={customPrompt}
+          onChange={(e) => onCustomPromptChange?.(e.target.value)}
+          placeholder="e.g., photorealistic portrait, natural lighting, professional photography, high quality, detailed features..."
+          className="w-full px-4 py-3 rounded-2xl border border-brandAccent/30 dark:border-white/20 bg-white dark:bg-brandSurface focus:ring-2 focus:ring-brandAccent focus:border-brandAccent outline-none transition"
+          rows={3}
+        />
       </div>
 
       <div className="flex flex-wrap gap-4">

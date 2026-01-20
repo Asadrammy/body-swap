@@ -41,4 +41,10 @@ peft>=0.6.0  # For LoRA support
 # Optional dependencies
 # dlib>=19.24.0  # Alternative face detector (requires manual build)
 # openpose-python  # Alternative pose detector (requires separate installation)
+google-generativeai>=0.8.0  # Google AI Studio (Gemini) for enhanced quality assessment
+
+# AI Image Generation APIs (optional, for API-based generation)
+openai>=1.0.0  # OpenAI DALL-E API
+replicate>=0.15.0  # Replicate API (optional)
+requests>=2.31.0  # For API requests
 

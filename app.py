@@ -105,12 +105,20 @@ async def serve_frontend():
 def main():
     """Main entry point"""
     import sys
+    import os
     sys.path.insert(0, str(Path(__file__).parent))
-    from src.utils.config import get_config
+    from src.utils.config import get_config, load_config
     
-    config = get_config()
+    # Load config from YAML file if it exists
+    config_path = project_root / "configs" / "default.yaml"
+    if config_path.exists():
+        config = load_config(str(config_path))
+    else:
+        config = get_config()
+    
+    # Allow environment variable to override port
+    port = int(os.getenv("API_PORT", config.get("api", {}).get("port", 8001)))
     host = config.get("api", {}).get("host", "0.0.0.0")
-    port = config.get("api", {}).get("port", 8000)
     
     print("=" * 60)
     print("Face and Body Swap - Starting Server")

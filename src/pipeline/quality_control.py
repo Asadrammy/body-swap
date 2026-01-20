@@ -7,6 +7,14 @@ from typing import Dict, List, Optional, Tuple
 from ..utils.logger import get_logger
 from ..utils.config import get_config
 
+# Optional Google AI integration
+try:
+    from ..models.google_ai_client import create_google_ai_client
+    GOOGLE_AI_AVAILABLE = True
+except ImportError:
+    GOOGLE_AI_AVAILABLE = False
+    create_google_ai_client = None
+
 logger = get_logger(__name__)
 
 
@@ -25,6 +33,16 @@ class QualityControl:
             "edges": region_strengths.get("edges", 0.45),
             "problems": region_strengths.get("problems", 0.7)
         }
+        
+        # Initialize Google AI client if available
+        self.google_ai_client = None
+        if GOOGLE_AI_AVAILABLE:
+            try:
+                self.google_ai_client = create_google_ai_client()
+                if self.google_ai_client:
+                    logger.info("Google AI client initialized for quality assessment")
+            except Exception as e:
+                logger.warning(f"Could not initialize Google AI client: {e}")
     
     def assess_quality(
         self,
@@ -121,6 +139,47 @@ class QualityControl:
             "should_reject": should_reject,  # NEW: Flag for rejection
             "meets_requirements": not should_reject  # NEW: Client requirement check
         }
+        
+        # Enhance with Google AI analysis if available
+        if self.google_ai_client:
+            try:
+                logger.info("Running Google AI quality analysis...")
+                ai_analysis = self.google_ai_client.analyze_image_quality(result_image)
+                
+                # Merge AI scores (normalize to 0-1 scale)
+                ai_overall = ai_analysis.get("overall_score", 7.0) / 10.0
+                ai_face = ai_analysis.get("face_score", 7.0) / 10.0
+                ai_body = ai_analysis.get("body_score", 7.0) / 10.0
+                
+                # Blend traditional and AI scores (70% traditional, 30% AI)
+                quality_metrics["overall_score"] = float(np.clip(
+                    overall_score * 0.7 + ai_overall * 0.3, 0.0, 1.0
+                ))
+                quality_metrics["face_similarity"] = float(np.clip(
+                    face_similarity * 0.7 + ai_face * 0.3, 0.0, 1.0
+                ))
+                quality_metrics["clothing_fit"] = float(np.clip(
+                    clothing_fit * 0.7 + ai_body * 0.3, 0.0, 1.0
+                ))
+                
+                # Add AI analysis to metrics
+                quality_metrics["ai_analysis"] = {
+                    "overall_score": ai_overall,
+                    "face_score": ai_face,
+                    "body_score": ai_body,
+                    "analysis_text": ai_analysis.get("analysis_text", ""),
+                    "recommendations": ai_analysis.get("recommendations", [])
+                }
+                
+                # Add AI-detected issues
+                if ai_analysis.get("recommendations"):
+                    quality_metrics["issues"].extend([
+                        f"AI: {rec}" for rec in ai_analysis["recommendations"][:3]
+                    ])
+                
+                logger.info(f"Google AI analysis completed: overall={ai_overall:.2f}")
+            except Exception as e:
+                logger.warning(f"Google AI analysis failed: {e}")
         
         return quality_metrics
     

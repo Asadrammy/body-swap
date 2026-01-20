@@ -13,8 +13,8 @@ from .routes import router, jobs
 from ..utils.logger import setup_logger, get_logger
 from ..utils.config import get_config
 
-# Setup logger
-setup_logger()
+# Setup logger with DEBUG level for live logs
+setup_logger(log_level="DEBUG")
 logger = get_logger(__name__)
 
 # Create FastAPI app
@@ -32,6 +32,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request logging middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.info("=" * 80)
+        logger.info(f"📥 INCOMING REQUEST: {request.method} {request.url.path}")
+        logger.info(f"   Query params: {dict(request.query_params)}")
+        logger.info(f"   Client: {request.client.host if request.client else 'unknown'}")
+        logger.info("=" * 80)
+        
+        response = await call_next(request)
+        
+        logger.info(f"📤 RESPONSE: {request.method} {request.url.path} - Status: {response.status_code}")
+        
+        return response
+
+app.add_middleware(LoggingMiddleware)
 
 # Get paths
 project_root = Path(__file__).parent.parent.parent.resolve()
@@ -99,7 +119,14 @@ else:
     logger.warning(f"Static directory not found at: {static_path}")
 
 # Include API routes
-app.include_router(router, prefix="/api/v1", tags=["swap"])
+try:
+    app.include_router(router, prefix="/api/v1", tags=["swap"])
+    logger.info("✓ API router mounted at /api/v1")
+    # Log registered routes for debugging
+    routes_count = len([r for r in router.routes])
+    logger.info(f"✓ Registered {routes_count} API routes")
+except Exception as e:
+    logger.error(f"✗ Failed to mount API router: {e}", exc_info=True)
 
 
 @app.on_event("startup")
@@ -110,6 +137,7 @@ async def startup_event():
     logger.info("=" * 80)
     
     try:
+        # Try to load local models (optional - not needed when using Stability AI API)
         from ..models.generator import get_global_generator
         import torch
         
@@ -136,11 +164,12 @@ async def startup_event():
             logger.error("❌ Models failed to load!")
             logger.warning("⚠️  Server will start but refinement may not work until models are downloaded")
             
+    except ImportError:
+        # get_global_generator not available - this is fine when using Stability AI API
+        logger.info("ℹ️  Local models not available - using Stability AI API for refinement (recommended)")
     except Exception as e:
-        logger.error(f"Error pre-loading models: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        logger.warning("⚠️  Server will start but models may not be available")
+        logger.debug(f"Local model pre-loading skipped: {str(e)}")
+        logger.info("ℹ️  Using Stability AI API for refinement (recommended)")
 
 
 @app.get("/health")

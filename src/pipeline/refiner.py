@@ -37,7 +37,8 @@ class Refiner:
         refinement_mask: Optional[np.ndarray] = None,
         strength: float = None,
         region_masks: Optional[Dict[str, np.ndarray]] = None,
-        quality: Optional[Dict] = None
+        quality: Optional[Dict] = None,
+        custom_prompt: Optional[str] = None
     ) -> np.ndarray:
         """
         Refine composed image using generative models
@@ -48,6 +49,7 @@ class Refiner:
             customer_body_shape: Customer body shape
             refinement_mask: Optional mask for selective refinement
             strength: Refinement strength (0-1)
+            custom_prompt: Optional custom prompt for AI generation
         
         Returns:
             Refined image
@@ -61,25 +63,32 @@ class Refiner:
         template_analysis = template_analysis or {}
         customer_body_shape = customer_body_shape or {}
         
-        # Generate prompt based on template and customer
-        prompt = self._generate_refinement_prompt(template_analysis, customer_body_shape)
+        # Use custom prompt if provided, otherwise generate prompt based on template and customer
+        if custom_prompt:
+            prompt = custom_prompt
+            logger.info(f"Using custom prompt: {custom_prompt[:100]}...")
+        else:
+            prompt = self._generate_refinement_prompt(template_analysis, customer_body_shape)
         negative_prompt = "solid color, single color, flat color, blue, pink, red, green, yellow, monochrome, uniform color, color block, blurry, low quality, distorted, deformed, plastic, artificial, fake, unnatural, CGI, 3D render, cartoon, painting, drawing"
         
-        # Check if generator is available before attempting refinement
-        try:
-            generator_available = self.generator.inpaint_pipe is not None
-        except:
-            generator_available = False
-        
-        if not generator_available:
-            logger.warning("Generator not available, skipping refinement and returning original composed image")
-            return working
+        # Check if generator can be initialized (lazy loading)
+        # The generator will load on first use, so we don't check here
+        # Instead, we'll let it try to load and handle errors gracefully
         
         # Optional global pass
         if refinement_mask is not None:
             try:
+                logger.info("=" * 80)
+                logger.info("🎨 CALLING STABILITY AI API FOR IMAGE REFINEMENT")
+                logger.info("=" * 80)
+                logger.info(f"📝 Prompt: {prompt[:150]}..." if len(prompt) > 150 else f"📝 Prompt: {prompt}")
+                logger.info(f"⚙️  Strength: {strength}")
+                logger.info(f"📐 Image shape: {working.shape}")
+                logger.info(f"🎭 Mask provided: Yes")
                 # Use config value for inference steps (minimum 30 enforced in generator)
                 inference_steps = self.config.get("processing", {}).get("num_inference_steps", 40)
+                logger.info(f"⏱️  Inference steps: {inference_steps}")
+                logger.info("⏳ Calling Stability AI API...")
                 refined_global = self.generator.refine(
                     image=working,
                     prompt=prompt,
@@ -88,6 +97,8 @@ class Refiner:
                     strength=strength,
                     num_inference_steps=inference_steps
                 )
+                logger.info("✅ Stability AI API call completed")
+                logger.info("=" * 80)
                 # Validate refined result - if it's invalid or solid color, keep original
                 if refined_global is not None and isinstance(refined_global, np.ndarray) and refined_global.size > 0:
                     if len(refined_global.shape) == 3:
@@ -107,8 +118,16 @@ class Refiner:
                         logger.warning(f"Global refinement returned solid color (unique_colors={unique_colors}, std={std_dev:.2f}, channel_stds={channel_stds}), keeping original")
                 else:
                     logger.warning("Global refinement returned invalid result, keeping original")
+            except ValueError as e:
+                # Re-raise API credit/payment errors
+                error_msg = str(e)
+                if "credits" in error_msg.lower() or "payment" in error_msg.lower() or "API" in error_msg:
+                    logger.error(f"❌ API ERROR in refinement: {error_msg}")
+                    raise  # Re-raise so it's handled by the pipeline
+                else:
+                    logger.error(f"Global refinement failed: {e}")
             except Exception as e:
-                logger.error(f"Global refinement failed: {e}")
+                logger.error(f"Global refinement failed: {e}", exc_info=True)
         
         # Region-specific passes
         if region_masks:
@@ -120,12 +139,18 @@ class Refiner:
                 h_mask, w_mask = mask.shape[:2]
                 if (h_mask, w_mask) != (h_working, w_working):
                     mask = cv2.resize(mask, (w_working, h_working), interpolation=cv2.INTER_NEAREST)
-                region_prompt = self._prompt_for_region(
-                    region_name,
-                    template_analysis,
-                    customer_body_shape,
-                    quality
-                )
+                
+                # Use custom prompt if provided for region refinement
+                if custom_prompt:
+                    # Enhance custom prompt with region-specific details
+                    region_prompt = f"{custom_prompt}, {self._get_region_specific_text(region_name)}"
+                else:
+                    region_prompt = self._prompt_for_region(
+                        region_name,
+                        template_analysis,
+                        customer_body_shape,
+                        quality
+                    )
                 region_strength = self.region_strengths.get(region_name, strength or 0.6)
                 try:
                     # Use config value (minimum 30 enforced in generator)
@@ -182,13 +207,20 @@ class Refiner:
         """
         x, y, w, h = face_bbox
         
-        # Create face mask
+        # Create PRECISE face mask - use ellipse, not rectangle, to avoid body regions
         mask = np.zeros(image.shape[:2], dtype=np.uint8)
-        mask[y:y+h, x:x+w] = 255
+        center = (x + w // 2, y + h // 2)
+        axes = (int(w * 0.45), int(h * 0.45))  # Slightly smaller to avoid body
+        cv2.ellipse(mask, center, axes, 0, 0, 360, 255, -1)
         
-        # Expand mask slightly for blending
-        kernel = np.ones((10, 10), np.uint8)
+        # Expand mask slightly for blending (but not too much)
+        kernel = np.ones((8, 8), np.uint8)
         mask = cv2.dilate(mask, kernel, iterations=1)
+        
+        # CRITICAL: Exclude body regions - ensure mask doesn't extend below neck
+        h_img, w_img = image.shape[:2]
+        neck_y = y + h + 20  # Neck is just below face
+        mask[neck_y:, :] = 0  # Remove mask from body regions
         
         # Use Mickmumpitz workflow for emotion control
         if expression_details and isinstance(expression_details, dict) and "type" in expression_details:
@@ -198,12 +230,14 @@ class Refiner:
             # Fallback to basic emotion data
             emotion_data = self.emotion_handler._get_emotion_data(expression_type)
         
-        # Generate base face prompt
+        # Generate base face prompt - enhanced for better quality
         base_face_prompt = (
             "photorealistic portrait, natural human skin with pores and texture, "
             "realistic skin tone variation, high quality photograph, detailed facial features, "
             "natural lighting, authentic human appearance, subtle skin imperfections, "
-            "professional photography, sharp focus, detailed eyes, natural hair, realistic clothing"
+            "professional photography, sharp focus, detailed eyes, natural hair, realistic clothing, "
+            "preserve original facial structure, maintain natural proportions, accurate facial anatomy, "
+            "single face only, one person, no duplicate faces, no extra faces, no face artifacts"
         )
         
         # Enhance with emotion using Mickmumpitz workflow
@@ -219,7 +253,10 @@ class Refiner:
             "solid color, single color, flat color, blue, pink, red, green, yellow, monochrome, "
             "uniform color, color block, plastic, artificial, fake, CGI, 3D render, smooth skin, "
             "airbrushed, perfect skin, doll-like, wax figure, synthetic, "
-            "blurred, distorted face, oversaturated, cartoon, painting, drawing, illustration"
+            "blurred, distorted face, oversaturated, cartoon, painting, drawing, illustration, "
+            "duplicate faces, extra faces, multiple faces, face on body, face on clothing, "
+            "face on chest, face on waist, surreal, deformed face, misplaced face, floating head, "
+            "disembodied head, second head, small head, miniature face"
         )
         
         # Add emotion-specific negatives
@@ -254,6 +291,14 @@ class Refiner:
             # Cap at 0.6 maximum to prevent distortion
             face_strength = min(face_strength, 0.6)
             
+            logger.info("=" * 80)
+            logger.info("🎨 CALLING STABILITY AI API FOR FACE REFINEMENT")
+            logger.info("=" * 80)
+            logger.info(f"📝 Prompt: {prompt[:150]}..." if len(prompt) > 150 else f"📝 Prompt: {prompt}")
+            logger.info(f"⚙️  Strength: {face_strength}")
+            logger.info(f"📐 Image shape: {image.shape}")
+            logger.info(f"🎭 Face mask: Yes (bbox: {face_bbox})")
+            logger.info("⏳ Calling Stability AI API...")
             refined = self.generator.refine(
                 image=image,
                 prompt=prompt,
@@ -261,6 +306,8 @@ class Refiner:
                 strength=face_strength,  # Use config value, capped at 0.6
                 num_inference_steps=30  # More steps for better quality
             )
+            logger.info("✅ Stability AI API call completed")
+            logger.info("=" * 80)
             
             # Validate refined result - if it's invalid or solid color, return original
             if refined is not None and isinstance(refined, np.ndarray) and refined.size > 0:
@@ -411,7 +458,12 @@ class Refiner:
             "natural lighting",
             "professional photography",
             "sharp focus",
-            "realistic materials"
+            "realistic materials",
+            "seamless integration",
+            "natural blending",
+            "convert customer to template style",
+            "apply template background",
+            "match template environment"
         ]
         
         # Add body type
@@ -420,12 +472,17 @@ class Refiner:
             if body_type != "unknown":
                 prompts.append(f"realistic {body_type} body proportions")
         
-        # Add clothing info
+        # Add clothing info - emphasize template clothing
         if template_analysis:
             clothing = template_analysis.get("clothing", {})
             clothing_items = clothing.get("items", []) if isinstance(clothing, dict) else []
             if clothing_items:
                 prompts.append("natural clothing fit and fabric texture")
+                prompts.append("template clothing style")
+            # Emphasize template background and environment
+            prompts.append("template background and environment")
+            prompts.append("match template setting")
+            prompts.append("replace background with template background")
             
             # Add expression using Mickmumpitz workflow
             expression = template_analysis.get("expression", {})
@@ -473,11 +530,21 @@ class Refiner:
         emotion_prompt = self.emotion_handler.generate_emotion_prompt(emotion_data)
         
         region_prompts = {
-            "face": f"hyper-detailed face, natural skin micro-texture with pores, {emotion_prompt}, precise features, realistic skin tone, professional portrait photography, sharp focus",
-            "body": "tailored clothing fit, realistic fabric folding and texture, accurate body proportions, natural shading, photorealistic materials, professional photography",
-            "edges": "feathered transitions, remove halos, seamless blend between subject and background, natural edge blending, realistic shadows",
-            "problems": "clean artifacts, remove noise, fix lighting inconsistencies, photorealistic detail, natural appearance, professional quality"
+            "face": f"hyper-detailed face, natural skin micro-texture with pores, {emotion_prompt}, precise features, realistic skin tone, professional portrait photography, sharp focus, preserve original person's facial features, maintain identity, keep original face structure",
+            "body": "tailored clothing fit, realistic fabric folding and texture, accurate body proportions, natural shading, photorealistic materials, professional photography, preserve original person's body shape, maintain natural appearance, keep original proportions",
+            "edges": "feathered transitions, remove halos, seamless blend between subject and background, natural edge blending, realistic shadows, smooth integration",
+            "problems": "clean artifacts, remove noise, fix lighting inconsistencies, photorealistic detail, natural appearance, professional quality, preserve original person's features"
         }
         region_text = region_prompts.get(region, "high fidelity details, photorealistic finish")
         return f"{region_text}, {base}"
+    
+    def _get_region_specific_text(self, region: str) -> str:
+        """Get region-specific text to enhance custom prompts"""
+        region_texts = {
+            "face": "natural skin texture with pores, realistic facial features, professional portrait",
+            "body": "realistic clothing fit, natural fabric texture, accurate body proportions",
+            "edges": "seamless blending, natural edge transitions, realistic shadows",
+            "problems": "clean artifacts, fix lighting issues, natural appearance"
+        }
+        return region_texts.get(region, "high quality, photorealistic")
 

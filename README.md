@@ -24,6 +24,7 @@ This **AI-powered face and body swap pipeline** is a fully automated system that
 - 👁️ **InsightFace** for advanced face recognition and swapping
 - 🎯 **MediaPipe** for body pose detection and analysis
 - 🎨 **Segment Anything Model (SAM)** for precise segmentation
+- 🧪 **Google AI (Gemini)** for enhanced quality assessment and AI-powered recommendations
 
 The system supports individuals, couples, families, and various body types with intelligent adaptation and natural-looking results.
 
@@ -41,6 +42,7 @@ The system supports individuals, couples, families, and various body types with 
 - ✅ **Action Photo Support** - Automatic detection and handling of action poses with dynamic expressions
 - ✅ **Natural Face Refinement** - Enhanced face processing to avoid plastic-looking results
 - ✅ **Quality Control** - Built-in AI quality assessment and refinement capabilities
+- ✅ **Google AI Integration** - Enhanced quality assessment with Gemini AI for better results
 - ✅ **Manual Touch-ups** - Enhanced mask generation for precise selective refinement
 
 ### Technical Features

@@ -15,32 +15,52 @@ function App() {
   const [photos, setPhotos] = useState<File[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateMetadata | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useState<string>('');
 
   const swapMutation = useMutation({
     mutationFn: async () => {
       if (!selectedTemplate) {
         throw new Error('No template selected');
       }
-      return swapApi.create(photos, selectedTemplate.id);
+      console.log('🚀 [FRONTEND] Starting swap job creation:', {
+        photos: photos.map(p => ({ name: p.name, size: p.size, type: p.type })),
+        templateId: selectedTemplate.id,
+        customPrompt: customPrompt || 'None',
+      });
+      return swapApi.create(photos, selectedTemplate.id, undefined, customPrompt || undefined);
     },
     onSuccess: (data) => {
+      console.log('✅ [FRONTEND] Swap job created successfully:', {
+        jobId: data.job_id,
+        status: data.status,
+        message: data.message,
+      });
       setJobId(data.job_id);
       setCurrentStep(3);
     },
     onError: (error) => {
-      console.error('Swap creation failed:', error);
+      console.error('❌ [FRONTEND] Swap creation failed:', error);
       alert('Failed to start processing. Please try again.');
       setCurrentStep(1);
     },
   });
 
   const handleStep1Next = () => {
+    console.log('🖱️ [FRONTEND] Step 1 Next clicked:', {
+      photosCount: photos.length,
+      photos: photos.map(p => ({ name: p.name, size: p.size })),
+    });
     if (photos.length > 0) {
       setCurrentStep(2);
     }
   };
 
   const handleStep2Next = () => {
+    console.log('🖱️ [FRONTEND] Step 2 Next clicked (Submit button):', {
+      templateId: selectedTemplate?.id,
+      templateName: selectedTemplate?.name,
+      customPrompt: customPrompt || 'None',
+    });
     if (selectedTemplate) {
       swapMutation.mutate();
     }
@@ -51,7 +71,11 @@ function App() {
   };
 
   const handleProcessingError = () => {
-    alert('Processing failed. Please try again.');
+    // Get the last job error if available
+    // Note: We could pass error details through props if needed
+    const errorMsg = 'Processing failed. Please check the console for details or try again.';
+    alert(errorMsg);
+    console.error('Processing failed. Check backend logs for details.');
     setCurrentStep(1);
     resetState();
   };
@@ -65,6 +89,7 @@ function App() {
     setPhotos([]);
     setSelectedTemplate(null);
     setJobId(null);
+    setCustomPrompt('');
   };
 
   return (
@@ -95,6 +120,8 @@ function App() {
               onTemplateSelect={setSelectedTemplate}
               onBack={() => setCurrentStep(1)}
               onNext={handleStep2Next}
+              customPrompt={customPrompt}
+              onCustomPromptChange={setCustomPrompt}
             />
           )}
 

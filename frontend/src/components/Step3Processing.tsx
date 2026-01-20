@@ -9,15 +9,31 @@ interface Step3ProcessingProps {
 }
 
 export function Step3Processing({ jobId, onComplete, onError }: Step3ProcessingProps) {
-  const { data: job } = useJobStatus(jobId, !!jobId);
+  const { data: job, error: queryError } = useJobStatus(jobId, !!jobId);
 
   useEffect(() => {
     if (job?.status === 'completed') {
       onComplete();
     } else if (job?.status === 'failed') {
+      // Log error details for debugging
+      if (job.error) {
+        console.error('Job failed with error:', job.error);
+      }
       onError();
     }
-  }, [job?.status, onComplete, onError]);
+  }, [job?.status, job?.error, onComplete, onError]);
+
+  // Handle query errors (e.g., network errors, 404, etc.)
+  useEffect(() => {
+    if (queryError) {
+      console.error('Error fetching job status:', queryError);
+      // Only trigger onError if we can't fetch status (e.g., job doesn't exist)
+      // Don't trigger on network timeouts during processing
+      if (queryError && !job) {
+        onError();
+      }
+    }
+  }, [queryError, job, onError]);
 
   const progress = job?.progress || 0;
   const currentStage = job?.current_stage || 'Initializing...';
@@ -59,4 +75,5 @@ export function Step3Processing({ jobId, onComplete, onError }: Step3ProcessingP
     </div>
   );
 }
+
 

@@ -14,8 +14,10 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8000',  // Backend runs on port 8000 (from configs/default.yaml)
         changeOrigin: true,
+        secure: false,
+        ws: true, // Enable WebSocket proxying if needed
       },
     },
   },

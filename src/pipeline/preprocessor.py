@@ -177,7 +177,30 @@ class Preprocessor:
             logger.info(f"Resized template from {w}x{h} to {new_w}x{new_h}")
         
         # Detect faces in template (for expression matching)
-        faces = self.face_detector.detect_faces(image)
+        # Try with more sensitive detection first
+        faces = self.face_detector.detect_faces(image, min_size=15)
+        
+        # If no faces found, try with a larger version (sometimes faces are too small)
+        if not faces:
+            logger.warning(f"No faces detected in template at original size, trying with upscaled version...")
+            h, w = image.shape[:2]
+            # Upscale by 1.5x for better face detection
+            upscaled = cv2.resize(image, (int(w * 1.5), int(h * 1.5)), interpolation=cv2.INTER_LINEAR)
+            faces = self.face_detector.detect_faces(upscaled, min_size=15)
+            if faces:
+                logger.info(f"✅ Found {len(faces)} face(s) in upscaled template")
+                # Scale face coordinates back to original size
+                for face in faces:
+                    if "bbox" in face:
+                        x, y, w_face, h_face = face["bbox"]
+                        face["bbox"] = [int(x / 1.5), int(y / 1.5), int(w_face / 1.5), int(h_face / 1.5)]
+                    if "landmarks" in face:
+                        landmarks = face["landmarks"]
+                        if isinstance(landmarks, np.ndarray):
+                            face["landmarks"] = (landmarks / 1.5).astype(np.int32)
+            else:
+                logger.warning(f"⚠️  Still no faces detected after upscaling - template may not have visible faces")
+                logger.warning(f"   Will proceed with body-only swap (no face swap)")
         
         result = {
             "image": image,

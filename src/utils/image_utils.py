@@ -26,7 +26,7 @@ def load_image(image_path: Union[str, Path]) -> np.ndarray:
     return np.array(img)
 
 
-def save_image(image: np.ndarray, output_path: Union[str, Path], quality: int = 95):
+def save_image(image: np.ndarray, output_path: Union[str, Path], quality: int = 95, is_mask: bool = False):
     """
     Save image to file
     
@@ -34,6 +34,7 @@ def save_image(image: np.ndarray, output_path: Union[str, Path], quality: int = 
         image: Image as numpy array (RGB format)
         output_path: Output file path
         quality: JPEG quality (1-100)
+        is_mask: If True, skip strict validation (masks can have few colors)
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,22 +46,27 @@ def save_image(image: np.ndarray, output_path: Union[str, Path], quality: int = 
     if len(image.shape) < 2:
         raise ValueError(f"Invalid image shape: {image.shape}")
     
-    # Check for solid color - be more lenient, just warn
-    if len(image.shape) == 3:
-        unique_colors = len(np.unique(image.reshape(-1, image.shape[-1]), axis=0))
-        std_dev = np.std(image)
-        # Also check if all pixels are the same
-        is_uniform = np.all(image == image.flat[0])
-    else:
-        unique_colors = len(np.unique(image))
-        std_dev = np.std(image)
-        is_uniform = np.all(image == image.flat[0])
+    # Auto-detect mask files by filename pattern
+    if not is_mask:
+        is_mask = "_mask_" in str(output_path) or output_path.name.startswith("mask_")
     
-    if is_uniform or unique_colors < 10:
-        raise ValueError(f"Cannot save solid/uniform color image (unique_colors={unique_colors}, is_uniform={is_uniform}) to {output_path}. This indicates a pipeline error.")
-    
-    if std_dev < 5.0:
-        raise ValueError(f"Cannot save low-variance image (std={std_dev:.2f}) to {output_path}. This indicates a pipeline error.")
+    # Check for solid color - skip validation for masks (they can have few colors)
+    if not is_mask:
+        if len(image.shape) == 3:
+            unique_colors = len(np.unique(image.reshape(-1, image.shape[-1]), axis=0))
+            std_dev = np.std(image)
+            # Also check if all pixels are the same
+            is_uniform = np.all(image == image.flat[0])
+        else:
+            unique_colors = len(np.unique(image))
+            std_dev = np.std(image)
+            is_uniform = np.all(image == image.flat[0])
+        
+        if is_uniform or unique_colors < 10:
+            raise ValueError(f"Cannot save solid/uniform color image (unique_colors={unique_colors}, is_uniform={is_uniform}) to {output_path}. This indicates a pipeline error.")
+        
+        if std_dev < 5.0:
+            raise ValueError(f"Cannot save low-variance image (std={std_dev:.2f}) to {output_path}. This indicates a pipeline error.")
     
     # Convert numpy array to PIL Image
     if image.dtype != np.uint8:

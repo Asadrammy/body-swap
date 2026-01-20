@@ -37,11 +37,14 @@ class Composer:
         Returns:
             Composed image
         """
+        logger.debug(f"Composition input - warped_body: {warped_body.shape if warped_body is not None else None}, template: {template_background.shape}")
+        
         # Match sizes
         h_bg, w_bg = template_background.shape[:2]
         h_body, w_body = warped_body.shape[:2]
         
         if (h_body, w_body) != (h_bg, w_bg):
+            logger.debug(f"Resizing warped_body from {warped_body.shape} to ({h_bg}, {w_bg})")
             warped_body = cv2.resize(warped_body, (w_bg, h_bg), interpolation=cv2.INTER_LINEAR)
             if body_mask is not None:
                 # Resize mask using nearest neighbor to preserve binary values
@@ -62,17 +65,43 @@ class Composer:
             logger.warning("Warped body is empty, returning template background")
             return template_background.copy()
         
-        # Blend
-        if body_mask is not None:
-            result = blend_images(template_background, warped_body, mask=body_mask)
+        # Validate warped_body before blending
+        if warped_body is None or warped_body.size == 0:
+            logger.warning("Warped body is empty, returning template background")
+            return template_background.copy()
+        
+        # Check if warped_body is valid (not solid color)
+        if len(warped_body.shape) == 3:
+            body_unique_colors = len(np.unique(warped_body.reshape(-1, warped_body.shape[-1]), axis=0))
+            body_std = np.std(warped_body)
         else:
-            # Default blending
-            result = blend_images(template_background, warped_body, alpha=0.9)
+            body_unique_colors = len(np.unique(warped_body))
+            body_std = np.std(warped_body)
+        
+        logger.debug(f"Warped body validation: unique_colors={body_unique_colors}, std={body_std:.2f}")
+        
+        if body_unique_colors < 10 or body_std < 5.0:
+            logger.warning(f"Warped body is solid color (unique_colors={body_unique_colors}, std={body_std:.2f})")
+            logger.warning(f"   This suggests body warping failed - using warped body directly (may be customer image)")
+            # Return warped_body directly instead of template - it might be the customer image
+            return warped_body.copy()
+        
+        # Blend
+        try:
+            if body_mask is not None:
+                result = blend_images(template_background, warped_body, mask=body_mask)
+            else:
+                # Default blending with lower alpha to preserve more of warped_body
+                result = blend_images(template_background, warped_body, alpha=0.7)
+        except Exception as e:
+            logger.error(f"Blending error: {e}", exc_info=True)
+            logger.warning("Blending failed, returning warped body directly")
+            return warped_body.copy()
         
         # Validate result
         if result is None or result.size == 0:
-            logger.warning("Composition result is empty, returning template background")
-            return template_background.copy()
+            logger.warning("Composition result is empty, returning warped body")
+            return warped_body.copy()
         
         # Check if result is solid color
         if len(result.shape) == 3:
@@ -83,8 +112,10 @@ class Composer:
             std_dev = np.std(result)
         
         if unique_colors < 10 or std_dev < 5.0:
-            logger.warning(f"Composition result is solid color (unique_colors={unique_colors}, std={std_dev:.2f}), returning template background")
-            return template_background.copy()
+            logger.warning(f"Composition result is solid color (unique_colors={unique_colors}, std={std_dev:.2f})")
+            logger.warning(f"   Warped body stats: unique_colors={body_unique_colors}, std={body_std:.2f}")
+            logger.warning(f"   Returning warped body directly instead of template")
+            return warped_body.copy()
         
         return result
     

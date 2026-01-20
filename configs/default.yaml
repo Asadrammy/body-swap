@@ -23,7 +23,7 @@ processing:
   mesh_cols: 12
   depth_map_size: 128
   region_refine_strengths:
-    face: 0.65
+    face: 0.55  # Reduced to avoid plastic looks (client requirement)
     body: 0.55
     edges: 0.45
     problems: 0.7

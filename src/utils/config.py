@@ -6,8 +6,17 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (with error handling for corrupted .env)
+try:
+    load_dotenv()
+except Exception as e:
+    # If .env has issues, try to load with override=False and ignore errors
+    import warnings
+    warnings.warn(f"Error loading .env file: {e}. Continuing with environment variables only.")
+    try:
+        load_dotenv(override=False)
+    except:
+        pass  # Continue without .env file
 
 _default_config = {
     "models": {
