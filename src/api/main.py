@@ -3,6 +3,7 @@
 import time
 import psutil
 import torch
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -17,11 +18,62 @@ from ..utils.config import get_config
 setup_logger(log_level="DEBUG")
 logger = get_logger(__name__)
 
-# Create FastAPI app
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
+    logger.info("=" * 80)
+    logger.info("🚀 PRE-LOADING MODELS AT STARTUP")
+    logger.info("=" * 80)
+    
+    try:
+        # Try to load local models (optional - not needed when using Stability AI API)
+        from ..models.generator import get_global_generator
+        import torch
+        
+        logger.info("Loading Stable Diffusion models...")
+        logger.info(f"GPU Available: {torch.cuda.is_available()}")
+        
+        # Get global generator (will load models if not already loaded)
+        generator = get_global_generator()
+        logger.info(f"Generator device: {generator.device}")
+        
+        # Verify models are loaded
+        if generator.inpaint_pipe is not None:
+            logger.info("✅ Models loaded successfully!")
+            if torch.cuda.is_available():
+                mem = torch.cuda.memory_reserved(0) / 1e9
+                logger.info(f"✅ GPU Memory: {mem:.2f} GB")
+                
+                # Verify device
+                device_str = str(next(generator.inpaint_pipe.unet.parameters()).device)
+                logger.info(f"✅ Models on: {device_str}")
+            else:
+                logger.info("✅ Models loaded on CPU")
+        else:
+            logger.error("❌ Models failed to load!")
+            logger.warning("⚠️  Server will start but refinement may not work until models are downloaded")
+            
+    except ImportError:
+        # get_global_generator not available - this is fine when using Stability AI API
+        logger.info("ℹ️  Local models not available - using Stability AI API for refinement (recommended)")
+    except Exception as e:
+        logger.debug(f"Local model pre-loading skipped: {str(e)}")
+        logger.info("ℹ️  Using Stability AI API for refinement (recommended)")
+    
+    yield
+    
+    # Shutdown (if needed)
+    logger.info("Shutting down...")
+
+
+# Create FastAPI app with lifespan
 app = FastAPI(
     title="Face and Body Swap API",
     description="Automated face and body swap pipeline API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -127,49 +179,6 @@ try:
     logger.info(f"✓ Registered {routes_count} API routes")
 except Exception as e:
     logger.error(f"✗ Failed to mount API router: {e}", exc_info=True)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Pre-load models at startup to avoid errors on first request"""
-    logger.info("=" * 80)
-    logger.info("🚀 PRE-LOADING MODELS AT STARTUP")
-    logger.info("=" * 80)
-    
-    try:
-        # Try to load local models (optional - not needed when using Stability AI API)
-        from ..models.generator import get_global_generator
-        import torch
-        
-        logger.info("Loading Stable Diffusion models...")
-        logger.info(f"GPU Available: {torch.cuda.is_available()}")
-        
-        # Get global generator (will load models if not already loaded)
-        generator = get_global_generator()
-        logger.info(f"Generator device: {generator.device}")
-        
-        # Verify models are loaded
-        if generator.inpaint_pipe is not None:
-            logger.info("✅ Models loaded successfully!")
-            if torch.cuda.is_available():
-                mem = torch.cuda.memory_reserved(0) / 1e9
-                logger.info(f"✅ GPU Memory: {mem:.2f} GB")
-                
-                # Verify device
-                device_str = str(next(generator.inpaint_pipe.unet.parameters()).device)
-                logger.info(f"✅ Models on: {device_str}")
-            else:
-                logger.info("✅ Models loaded on CPU")
-        else:
-            logger.error("❌ Models failed to load!")
-            logger.warning("⚠️  Server will start but refinement may not work until models are downloaded")
-            
-    except ImportError:
-        # get_global_generator not available - this is fine when using Stability AI API
-        logger.info("ℹ️  Local models not available - using Stability AI API for refinement (recommended)")
-    except Exception as e:
-        logger.debug(f"Local model pre-loading skipped: {str(e)}")
-        logger.info("ℹ️  Using Stability AI API for refinement (recommended)")
 
 
 @app.get("/health")
